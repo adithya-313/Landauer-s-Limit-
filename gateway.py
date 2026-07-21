@@ -1,7 +1,7 @@
 """
 gateway.py
 ==========
-PHASE 2 — FastAPI Gateway with 64KB Memory Protection.
+PHASE 2/3 — FastAPI Gateway with 64KB Memory Protection + CPU Guardrail.
 
 This script defines a FastAPI web server that acts as the API Gateway for the
 Landauer's Limit project. It currently serves a mocked /v1/chat/completions
@@ -11,6 +11,11 @@ plugged in during Phase 5.
 Security middleware intercepts every incoming request BEFORE the body is read.
 If the Content-Length exceeds 64KB the request is rejected with HTTP 413,
 preventing large payloads from consuming server memory.
+
+The CPU Guardrail (Phase 3) inspects every user message for prompt-injection
+patterns via ONNX Runtime + FAISS HNSW. It runs with a strict timeout; if the
+guardrail times out, the request is allowed through (fail-open) and the
+X-Guardrail-Degraded response header is set.
 """
 
 # ---------------------------------------------------------------------------
@@ -20,6 +25,8 @@ preventing large payloads from consuming server memory.
 # We use `requests`-style models for the OpenAI-compatible schema.
 # JSONResponse lets us return custom payloads from the middleware.
 # ---------------------------------------------------------------------------
+import asyncio
+import logging
 import time
 import uuid
 from typing import List, Optional, Literal
@@ -27,6 +34,14 @@ from typing import List, Optional, Literal
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+# The CPU Guardrail (Phase 3) — ONNX + FAISS prompt-injection detector.
+import guardrail as _guardrail_module
+from guardrail import guardrail as _guardrail_instance
+
+# Set up a logger so we can log guardrail degradation events.
+logger = logging.getLogger("gateway")
+logger.setLevel(logging.INFO)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +246,28 @@ app.middleware("http")(check_payload_size)
 
 
 # ---------------------------------------------------------------------------
+# LIFESPAN EVENT — Startup / Shutdown
+# ---------------------------------------------------------------------------
+# We use the modern lifespan context manager (replaces deprecated
+# on_event("startup")). The guardrail is already initialised at import time;
+# here we just log confirmation.
+# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+async def on_startup():
+    """
+    Confirm the guardrail is ready when the server starts.
+    The guardrail initialises itself at module import time, so this is
+    mostly a logging convenience.
+    """
+    logger.info(
+        "Guardrail loaded. Timeout = %.0f ms, Threshold = %.2f",
+        _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
+        _guardrail_module.SIMILARITY_THRESHOLD,
+    )
+
+
+# ---------------------------------------------------------------------------
 # API ROUTES (Domain-Driven Design — Layer 3)
 # ---------------------------------------------------------------------------
 
@@ -242,21 +279,64 @@ async def health_check():
     return {"status": "ok", "timestamp": int(time.time())}
 
 
-@app.post("/v1/chat/completions", response_model=ChatCompletionResponse, tags=["chat"])
-async def create_chat_completion(request_body: ChatCompletionRequest):
+@app.post("/v1/chat/completions", tags=["chat"])
+async def create_chat_completion(
+    request_body: ChatCompletionRequest,
+    request: Request,
+):
     """
-    Dummy chat completion endpoint (to be connected to real AI in Phase 5).
+    Chat completion endpoint with prompt-injection guardrail.
 
-    This endpoint currently returns a hard-coded mock response so the API
-    contract can be tested end-to-end before the AI engines are integrated.
+    How the guardrail works:
+    1. Extract the last user message from the conversation.
+    2. Offload the guardrail ONNX inference to the thread pool so it does
+       NOT block the async event loop.
+    3. Enforce a hard timeout (GUARDRAIL_TIMEOUT). If the guardrail is
+       slower than expected the request is allowed to proceed (fail-open)
+       with an X-Guardrail-Degraded: true response header.
+    4. If the guardrail flags the message as malicious, return 400.
+    5. Otherwise return the mock completion (Phase 5 will connect real AI).
     """
-    # Build a simple echo-like response so tests can verify the schema.
+    # --- Step 1: Extract the last user message ---
     last_user_message = ""
     for msg in reversed(request_body.messages):
         if msg.role == "user":
             last_user_message = msg.content
             break
 
+    # --- Step 2: Run the guardrail with a timeout ---
+    degraded = False
+    try:
+        # Offload to thread pool so the ONNX inference does not block.
+        is_malicious, score = await asyncio.wait_for(
+            asyncio.to_thread(_guardrail_instance.check, last_user_message),
+            timeout=_guardrail_module.GUARDRAIL_TIMEOUT,
+        )
+
+        # --- Step 3: If flagged, reject immediately ---
+        if is_malicious:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Prompt Injection Detected",
+                    "similarity_score": round(score, 4),
+                },
+            )
+
+    except asyncio.TimeoutError:
+        # Fail-open: guardrail took too long, let the request through.
+        logger.warning(
+            "Guardrail timeout (%.0f ms) — degrading for prompt: %.50s",
+        _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
+            last_user_message,
+        )
+        degraded = True
+    except Exception:
+        # Also fail-open on any unexpected guardrail error.
+        logger.exception("Guardrail error — degrading.")
+        degraded = True
+
+    # --- Step 4: Build the mock response ---
     mock_reply = (
         f"This is a mock response from the Landauer's Limit gateway. "
         f"You said: \"{last_user_message[:50]}{'...' if len(last_user_message) > 50 else ''}\""
@@ -280,5 +360,14 @@ async def create_chat_completion(request_body: ChatCompletionRequest):
             "total_tokens": 0,
         },
     )
+
+    # --- Step 5: Attach the degradation header if needed ---
+    if degraded:
+        response_dict = response.model_dump()
+        return JSONResponse(
+            status_code=200,
+            content=response_dict,
+            headers={"X-Guardrail-Degraded": "true"},
+        )
 
     return response
