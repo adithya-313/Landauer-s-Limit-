@@ -1,7 +1,8 @@
 """
 gateway.py
 ==========
-PHASE 2/3 — FastAPI Gateway with 64KB Memory Protection + CPU Guardrail.
+PHASE 2/3/4 — FastAPI Gateway with 64KB Memory Protection + CPU Guardrail
+              + Semantic Cache.
 
 This script defines a FastAPI web server that acts as the API Gateway for the
 Landauer's Limit project. It currently serves a mocked /v1/chat/completions
@@ -16,6 +17,11 @@ The CPU Guardrail (Phase 3) inspects every user message for prompt-injection
 patterns via ONNX Runtime + FAISS HNSW. It runs with a strict timeout; if the
 guardrail times out, the request is allowed through (fail-open) and the
 X-Guardrail-Degraded response header is set.
+
+The Semantic Cache (Phase 4) checks whether a semantically similar question
+has already been answered before calling the guardrail. On a cache hit the
+cached response is returned immediately with X-Cache: HIT, bypassing both the
+guardrail and (in the future) the LLM call.
 """
 
 # ---------------------------------------------------------------------------
@@ -38,6 +44,10 @@ from pydantic import BaseModel, Field
 # The CPU Guardrail (Phase 3) — ONNX + FAISS prompt-injection detector.
 import guardrail as _guardrail_module
 from guardrail import guardrail as _guardrail_instance
+
+# The Semantic Cache (Phase 4) — FAISS IndexIDMap + LRU eviction cache.
+import semantic_cache as _cache_module
+from semantic_cache import semantic_cache as _cache_instance
 
 # Set up a logger so we can log guardrail degradation events.
 logger = logging.getLogger("gateway")
@@ -285,27 +295,77 @@ async def create_chat_completion(
     request: Request,
 ):
     """
-    Chat completion endpoint with prompt-injection guardrail.
+    Chat completion endpoint with semantic cache + prompt-injection guardrail.
 
-    How the guardrail works:
-    1. Extract the last user message from the conversation.
-    2. Offload the guardrail ONNX inference to the thread pool so it does
-       NOT block the async event loop.
-    3. Enforce a hard timeout (GUARDRAIL_TIMEOUT). If the guardrail is
-       slower than expected the request is allowed to proceed (fail-open)
-       with an X-Guardrail-Degraded: true response header.
-    4. If the guardrail flags the message as malicious, return 400.
-    5. Otherwise return the mock completion (Phase 5 will connect real AI).
+    Request lifecycle:
+    1. Extract the last user message and (for multi-turn) the last assistant
+       response to build context.
+    2. Check the semantic cache. If a semantically similar Q&A pair is found,
+       return the cached response immediately with X-Cache: HIT.
+    3. Otherwise, run the guardrail ONNX inference offloaded to a thread pool
+       with a hard timeout. If the guardrail times out, the request proceeds
+       with X-Guardrail-Degraded: true (fail-open).
+    4. If the guardrail flags the message as malicious, return HTTP 400.
+    5. Insert the response into the semantic cache and return it with
+       X-Cache: MISS.
     """
-    # --- Step 1: Extract the last user message ---
+    # --- Step 1: Extract messages for cache lookup and guardrail ---
     last_user_message = ""
+    last_assistant_response = ""
     for msg in reversed(request_body.messages):
-        if msg.role == "user":
+        if msg.role == "assistant" and not last_assistant_response:
+            last_assistant_response = msg.content
+        if msg.role == "user" and not last_user_message:
             last_user_message = msg.content
-            break
 
-    # --- Step 2: Run the guardrail with a timeout ---
+    # Bail out early if there is no user message at all.
+    if not last_user_message:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No user message found in the request."},
+        )
+
+    # --- Step 2: Check the semantic cache ---
+    # Use the last assistant response as context for multi-turn disambiguation.
+    cache_context = last_assistant_response
+
+    cache_hit, cached_response, cache_similarity = await asyncio.to_thread(
+        _cache_instance.check_cache, last_user_message, cache_context,
+    )
+
+    if cache_hit:
+        logger.info(
+            "Cache HIT (sim=%.4f) for: %.50s",
+            cache_similarity,
+            last_user_message,
+        )
+        response = ChatCompletionResponse(
+            id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+            object="chat.completion",
+            created=int(time.time()),
+            model=request_body.model,
+            choices=[
+                Choice(
+                    index=0,
+                    message=Message(role="assistant", content=cached_response),
+                    finish_reason="stop",
+                )
+            ],
+            usage={
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        )
+        return JSONResponse(
+            status_code=200,
+            content=response.model_dump(),
+            headers={"X-Cache": "HIT"},
+        )
+
+    # --- Step 3: Run the guardrail with a timeout ---
     degraded = False
+    guardrail_passed = False
     try:
         # Offload to thread pool so the ONNX inference does not block.
         is_malicious, score = await asyncio.wait_for(
@@ -313,7 +373,6 @@ async def create_chat_completion(
             timeout=_guardrail_module.GUARDRAIL_TIMEOUT,
         )
 
-        # --- Step 3: If flagged, reject immediately ---
         if is_malicious:
             return JSONResponse(
                 status_code=400,
@@ -323,11 +382,13 @@ async def create_chat_completion(
                 },
             )
 
+        guardrail_passed = True
+
     except asyncio.TimeoutError:
         # Fail-open: guardrail took too long, let the request through.
         logger.warning(
             "Guardrail timeout (%.0f ms) — degrading for prompt: %.50s",
-        _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
+            _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
             last_user_message,
         )
         degraded = True
@@ -361,13 +422,22 @@ async def create_chat_completion(
         },
     )
 
-    # --- Step 5: Attach the degradation header if needed ---
-    if degraded:
-        response_dict = response.model_dump()
-        return JSONResponse(
-            status_code=200,
-            content=response_dict,
-            headers={"X-Guardrail-Degraded": "true"},
+    # --- Step 5: Insert into cache if guardrail passed (not malicious) ---
+    if guardrail_passed or degraded:
+        # Offload the cache insert to a thread so it does not block.
+        await asyncio.to_thread(
+            _cache_instance.insert, last_user_message,
+            response.choices[0].message.content, cache_context,
         )
 
-    return response
+    # --- Step 6: Attach headers ---
+    response_headers = {"X-Cache": "MISS"}
+    if degraded:
+        response_headers["X-Guardrail-Degraded"] = "true"
+
+    response_dict = response.model_dump()
+    return JSONResponse(
+        status_code=200,
+        content=response_dict,
+        headers=response_headers,
+    )

@@ -1,16 +1,18 @@
 """
 guardrail.py
 ============
-PHASE 3 — CPU Guardrail with ONNX Runtime and FAISS HNSW Vector Search.
+PHASE 3/4 — CPU Guardrail + Shared ONNX Embedding Engine.
 
-This module provides real-time prompt-injection detection using:
-  1. ONNX Runtime to embed text via all-MiniLM-L6-v2 on CPU.
-  2. FAISS HNSW (hierarchical navigable small world) index for fast
-     approximate nearest-neighbour search against known seed phrases.
-  3. A threshold-based classifier (cosine similarity >= 0.75 = malicious).
+This module provides:
+  1. A module-level `embed_text()` function that any other module (including
+     the Semantic Cache in Phase 4) can use to embed text via ONNX Runtime.
+  2. The `CpuGuardrail` class for prompt-injection detection using the same
+     shared ONNX session + FAISS HNSW index of seed phrases.
+  3. A threshold-based classifier (cosine similarity >= 0.70 = malicious).
 
-It is designed to run inside the Gateway's request loop with a hard
-timeout of 97.98 ms (fail-open if exceeded).
+The ONNX session and tokenizer are initialised once at module level so that
+the embedding engine is a singleton shared across guardrail and cache — no
+duplicate model loading or GPU memory waste.
 
 DERIVED TIMEOUT: 97.98 ms (0.098 s) based on ONNX Runtime CPU
 p95 = 65.32 ms * 1.5 in runtime_bench.md
@@ -43,6 +45,128 @@ SIMILARITY_THRESHOLD: float = 0.70
 # Hard timeout for a guardrail inference call (seconds).
 # Derived from runtime_bench.md: ONNX CPU p95 = 65.32 ms * 1.5 = 97.98 ms.
 GUARDRAIL_TIMEOUT: float = 0.098
+
+# Padding/truncation length for tokenizer.
+MAX_SEQ_LEN: int = 128
+
+
+# ---------------------------------------------------------------------------
+# SHARED ONNX INFRASTRUCTURE (module-level singletons)
+# ---------------------------------------------------------------------------
+# We load the tokenizer and ONNX session once here so that both the guardrail
+# and the semantic cache (Phase 4) can call embed_text() without each holding
+# their own copy. This saves memory and avoids redundant model loading.
+# ---------------------------------------------------------------------------
+
+print("[Guardrail] Initialising shared ONNX embedding engine ...")
+
+_TOKENIZER = AutoTokenizer.from_pretrained(
+    "sentence-transformers/all-MiniLM-L6-v2",
+)
+
+_SESSION_OPTIONS = onnxruntime.SessionOptions()
+_SESSION_OPTIONS.graph_optimization_level = (
+    onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+)
+
+_ONNX_SESSION = onnxruntime.InferenceSession(
+    ONNX_MODEL_PATH,
+    sess_options=_SESSION_OPTIONS,
+    providers=["CPUExecutionProvider"],
+)
+
+print(f"[Guardrail] Shared ONNX session ready (provider: "
+      f"{_ONNX_SESSION.get_providers()[0]})")
+
+
+# ---------------------------------------------------------------------------
+# EMBEDDING UTILITIES
+# ---------------------------------------------------------------------------
+
+def mean_pooling(last_hidden_state: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
+    """
+    Apply mean pooling over the sequence dimension, masking out padding tokens.
+    This produces a single fixed-size vector per sample.
+
+    Parameters
+    ----------
+    last_hidden_state : np.ndarray
+        Shape (batch_size, seq_len, hidden_dim).
+    attention_mask : np.ndarray
+        Shape (batch_size, seq_len). 1 for real tokens, 0 for padding.
+
+    Returns
+    -------
+    np.ndarray
+        Shape (batch_size, hidden_dim) — pooled embeddings.
+    """
+    # Expand mask to match hidden dimension.
+    mask = attention_mask.astype(np.float32)
+    mask = np.expand_dims(mask, axis=-1)  # (batch, seq, 1)
+
+    # Zero out padding positions, then divide by the number of real tokens.
+    summed = np.sum(last_hidden_state * mask, axis=1)
+    counts = np.clip(np.sum(mask, axis=1), a_min=1e-9, a_max=None)
+    pooled = summed / counts
+
+    return pooled
+
+
+def l2_normalize(vectors: np.ndarray) -> np.ndarray:
+    """L2-normalise each row of the array (in-place safe)."""
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.clip(norms, a_min=1e-12, a_max=None)
+    return vectors / norms
+
+
+# ---------------------------------------------------------------------------
+# STANDALONE EMBEDDING FUNCTION (shared API for guardrail + cache)
+# ---------------------------------------------------------------------------
+
+def embed_text(text: str) -> np.ndarray:
+    """
+    Embed a single text string using the shared ONNX model.
+
+    This function is the canonical entry point for all text-to-vector work
+    in the project. Both CpuGuardrail and SemanticCache call this instead of
+    maintaining their own ONNX sessions.
+
+    Parameters
+    ----------
+    text : str
+        The input text to embed.
+
+    Returns
+    -------
+    np.ndarray
+        Shape (1, EMBEDDING_DIM) — L2-normalised embedding vector.
+    """
+    # Tokenize: turn the text into input_ids and attention_mask tensors.
+    encoded = _TOKENIZER(
+        [text],
+        padding=True,
+        truncation=True,
+        max_length=MAX_SEQ_LEN,
+        return_tensors="np",
+    )
+    input_ids = encoded["input_ids"].astype(np.int64)
+    attention_mask = encoded["attention_mask"].astype(np.int64)
+
+    # Run the ONNX model to get the raw hidden states.
+    outputs = _ONNX_SESSION.run(
+        output_names=["last_hidden_state", "pooler_output"],
+        input_feed={
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+        },
+    )
+    last_hidden_state = outputs[0]
+
+    # Mean-pool to get one vector per sample, then L2-normalise.
+    pooled = mean_pooling(last_hidden_state, attention_mask)
+    normalized = l2_normalize(pooled).astype(np.float32)
+
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +303,10 @@ def l2_normalize(vectors: np.ndarray) -> np.ndarray:
 
 class CpuGuardrail:
     """
-    Prompt-injection guardrail using ONNX Runtime + FAISS HNSW.
+    Prompt-injection guardrail using shared ONNX embedding + FAISS HNSW.
+
+    This class reuses the module-level ONNX session and tokenizer via the
+    `embed_text()` function — it does NOT load its own copy of the model.
 
     Usage:
         guardrail = CpuGuardrail()
@@ -187,29 +314,16 @@ class CpuGuardrail:
     """
 
     def __init__(self):
-        # --- 1. Load the tokenizer ---
-        print("[Guardrail] Loading tokenizer ...")
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            "sentence-transformers/all-MiniLM-L6-v2",
-        )
-
-        # --- 2. Load the ONNX Runtime session ---
-        print(f"[Guardrail] Loading ONNX model from '{ONNX_MODEL_PATH}' ...")
-        so = onnxruntime.SessionOptions()
-        so.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-        self.session = onnxruntime.InferenceSession(
-            ONNX_MODEL_PATH,
-            sess_options=so,
-            providers=["CPUExecutionProvider"],
-        )
-        print(f"[Guardrail] ONNX session ready (provider: {self.session.get_providers()[0]})")
-
-        # --- 3. Build the FAISS HNSW index from seed phrases ---
+        # Build the FAISS HNSW index from seed phrases using the shared
+        # embed_text() function.
         print(f"[Guardrail] Embedding {len(SEED_PHRASES)} seed phrases for FAISS index ...")
-        seed_embeddings = self._embed_batch(SEED_PHRASES)
 
-        # L2-normalise so inner product = cosine similarity.
-        seed_embeddings = l2_normalize(seed_embeddings)
+        # Embed each seed phrase one at a time via the shared embed_text().
+        seed_vectors = []
+        for phrase in SEED_PHRASES:
+            vec = embed_text(phrase)
+            seed_vectors.append(vec)
+        seed_embeddings = np.vstack(seed_vectors)
 
         # Create HNSW index with inner-product metric.
         # Since all vectors are L2-normalised, inner product = cosine similarity.
@@ -218,54 +332,6 @@ class CpuGuardrail:
         self.index.add(seed_embeddings.astype(np.float32))
 
         print(f"[Guardrail] FAISS HNSW index ready ({self.index.ntotal} vectors).")
-
-    # ------------------------------------------------------------------
-    # Internal: embed one or more texts via ONNX Runtime
-    # ------------------------------------------------------------------
-
-    def _embed_batch(self, texts: List[str]) -> np.ndarray:
-        """
-        Run tokenization + ONNX inference + mean pooling for a batch of texts.
-
-        Parameters
-        ----------
-        texts : list of str
-            Input texts to embed.
-
-        Returns
-        -------
-        np.ndarray
-            Shape (len(texts), EMBEDDING_DIM).
-        """
-        # Tokenize.
-        encoded = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=MAX_SEQ_LEN,
-            return_tensors="np",
-        )
-        input_ids = encoded["input_ids"].astype(np.int64)
-        attention_mask = encoded["attention_mask"].astype(np.int64)
-
-        # Run ONNX inference.
-        outputs = self.session.run(
-            output_names=["last_hidden_state", "pooler_output"],
-            input_feed={
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-            },
-        )
-        last_hidden_state = outputs[0]
-
-        # Mean pooling to get a single vector per sample.
-        pooled = mean_pooling(last_hidden_state, attention_mask)
-
-        return pooled
-
-    def _embed_single(self, text: str) -> np.ndarray:
-        """Embed a single text. Returns shape (1, EMBEDDING_DIM)."""
-        return self._embed_batch([text])
 
     # ------------------------------------------------------------------
     # Public API
@@ -286,9 +352,8 @@ class CpuGuardrail:
             is_malicious : True if similarity >= threshold.
             similarity_score : cosine similarity to the nearest seed phrase (0-1).
         """
-        # Embed the prompt.
-        prompt_vec = self._embed_single(prompt)
-        prompt_vec = l2_normalize(prompt_vec).astype(np.float32)
+        # Embed the prompt via the shared function.
+        prompt_vec = embed_text(prompt)
 
         # Search FAISS for the nearest neighbour (k=1).
         distances, _ = self.index.search(prompt_vec, k=1)
