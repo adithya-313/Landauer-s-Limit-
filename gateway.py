@@ -295,84 +295,45 @@ async def create_chat_completion(
     request: Request,
 ):
     """
-    Chat completion endpoint with semantic cache + prompt-injection guardrail.
+    Chat completion endpoint with guardrail (fail-open) + semantic cache.
 
-    Request lifecycle:
-    1. Extract the last user message and (for multi-turn) the last assistant
-       response to build context.
-    2. Check the semantic cache. If a semantically similar Q&A pair is found,
-       return the cached response immediately with X-Cache: HIT.
-    3. Otherwise, run the guardrail ONNX inference offloaded to a thread pool
-       with a hard timeout. If the guardrail times out, the request proceeds
-       with X-Guardrail-Degraded: true (fail-open).
-    4. If the guardrail flags the message as malicious, return HTTP 400.
-    5. Insert the response into the semantic cache and return it with
-       X-Cache: MISS.
+    Execution order:
+      1. Parse request body.
+      2. guardrail.check(prompt) with timeout.
+      3. If malicious -> HTTP 400 (Hard Halt).
+      4. If TimeoutError/Exception -> degraded = True, proceed (fail-open).
+      5. cache.check_cache(messages).
+      6. Cache Hit -> HTTP 200 + X-Cache: HIT [+ X-Guardrail-Degraded].
+      7. Cache Miss -> LLM Mock -> cache.insert() -> HTTP 200 + X-Cache: MISS
+         [+ X-Guardrail-Degraded].
     """
-    # --- Step 1: Extract messages for cache lookup and guardrail ---
-    last_user_message = ""
-    last_assistant_response = ""
-    for msg in reversed(request_body.messages):
-        if msg.role == "assistant" and not last_assistant_response:
-            last_assistant_response = msg.content
-        if msg.role == "user" and not last_user_message:
-            last_user_message = msg.content
+    # --- Step 1: Parse / extract the last user message ---
+    messages_dicts = [
+        {"role": msg.role, "content": msg.content}
+        for msg in request_body.messages
+    ]
 
-    # Bail out early if there is no user message at all.
+    last_user_message = ""
+    for msg in reversed(messages_dicts):
+        if msg["role"] == "user" and not last_user_message:
+            last_user_message = msg["content"]
+            break
+
     if not last_user_message:
         return JSONResponse(
             status_code=400,
             content={"error": "No user message found in the request."},
         )
 
-    # --- Step 2: Check the semantic cache ---
-    # Use the last assistant response as context for multi-turn disambiguation.
-    cache_context = last_assistant_response
-
-    cache_hit, cached_response, cache_similarity = await asyncio.to_thread(
-        _cache_instance.check_cache, last_user_message, cache_context,
-    )
-
-    if cache_hit:
-        logger.info(
-            "Cache HIT (sim=%.4f) for: %.50s",
-            cache_similarity,
-            last_user_message,
-        )
-        response = ChatCompletionResponse(
-            id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
-            object="chat.completion",
-            created=int(time.time()),
-            model=request_body.model,
-            choices=[
-                Choice(
-                    index=0,
-                    message=Message(role="assistant", content=cached_response),
-                    finish_reason="stop",
-                )
-            ],
-            usage={
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
-        )
-        return JSONResponse(
-            status_code=200,
-            content=response.model_dump(),
-            headers={"X-Cache": "HIT"},
-        )
-
-    # --- Step 3: Run the guardrail with a timeout ---
+    # --- Step 2: Guardrail with fail-open ---
     degraded = False
-    guardrail_passed = False
     try:
-        # Offload to thread pool so the ONNX inference does not block.
         is_malicious, score = await asyncio.wait_for(
             asyncio.to_thread(_guardrail_instance.check, last_user_message),
             timeout=_guardrail_module.GUARDRAIL_TIMEOUT,
         )
 
+        # Step 3: Malicious -> Hard Halt.
         if is_malicious:
             return JSONResponse(
                 status_code=400,
@@ -382,10 +343,8 @@ async def create_chat_completion(
                 },
             )
 
-        guardrail_passed = True
-
     except asyncio.TimeoutError:
-        # Fail-open: guardrail took too long, let the request through.
+        # Step 4: Fail-open — guardrail timed out, proceed degraded.
         logger.warning(
             "Guardrail timeout (%.0f ms) — degrading for prompt: %.50s",
             _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
@@ -393,11 +352,26 @@ async def create_chat_completion(
         )
         degraded = True
     except Exception:
-        # Also fail-open on any unexpected guardrail error.
+        # Fail-open — any unexpected guardrail error, proceed degraded.
         logger.exception("Guardrail error — degrading.")
         degraded = True
 
-    # --- Step 4: Build the mock response ---
+    # --- Step 5: Check the semantic cache ---
+    cached_response = await _cache_instance.check_cache(messages_dicts)
+
+    # --- Step 6: Cache Hit — return immediately ---
+    if cached_response is not None:
+        headers = {"X-Cache": "HIT"}
+        if degraded:
+            headers["X-Guardrail-Degraded"] = "true"
+        logger.info("Cache HIT for: %.50s", last_user_message)
+        return JSONResponse(
+            status_code=200,
+            content=cached_response,
+            headers=headers,
+        )
+
+    # --- Step 7: Cache Miss — mock, insert, return ---
     mock_reply = (
         f"This is a mock response from the Landauer's Limit gateway. "
         f"You said: \"{last_user_message[:50]}{'...' if len(last_user_message) > 50 else ''}\""
@@ -422,22 +396,14 @@ async def create_chat_completion(
         },
     )
 
-    # --- Step 5: Insert into cache if guardrail passed (not malicious) ---
-    if guardrail_passed or degraded:
-        # Offload the cache insert to a thread so it does not block.
-        await asyncio.to_thread(
-            _cache_instance.insert, last_user_message,
-            response.choices[0].message.content, cache_context,
-        )
-
-    # --- Step 6: Attach headers ---
-    response_headers = {"X-Cache": "MISS"}
-    if degraded:
-        response_headers["X-Guardrail-Degraded"] = "true"
-
     response_dict = response.model_dump()
+    await _cache_instance.insert(messages_dicts, response_dict)
+
+    headers = {"X-Cache": "MISS"}
+    if degraded:
+        headers["X-Guardrail-Degraded"] = "true"
     return JSONResponse(
         status_code=200,
         content=response_dict,
-        headers=response_headers,
+        headers=headers,
     )
