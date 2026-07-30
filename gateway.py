@@ -1,44 +1,39 @@
 """
 gateway.py
 ==========
-PHASE 2/3/4 — FastAPI Gateway with 64KB Memory Protection + CPU Guardrail
-              + Semantic Cache.
+PHASE 2/3/4/5 — FastAPI Gateway with 64KB Memory Protection + CPU Guardrail
+                 + Semantic Cache + Multi-Engine Router.
 
 This script defines a FastAPI web server that acts as the API Gateway for the
-Landauer's Limit project. It currently serves a mocked /v1/chat/completions
-endpoint that follows the OpenAI API schema. The real AI engines will be
-plugged in during Phase 5.
+Landauer's Limit project. It serves an OpenAI-compatible /v1/chat/completions
+endpoint.
 
-Security middleware intercepts every incoming request BEFORE the body is read.
-If the Content-Length exceeds 64KB the request is rejected with HTTP 413,
-preventing large payloads from consuming server memory.
-
-The CPU Guardrail (Phase 3) inspects every user message for prompt-injection
-patterns via ONNX Runtime + FAISS HNSW. It runs with a strict timeout; if the
-guardrail times out, the request is allowed through (fail-open) and the
-X-Guardrail-Degraded response header is set.
-
-The Semantic Cache (Phase 4) checks whether a semantically similar question
-has already been answered before calling the guardrail. On a cache hit the
-cached response is returned immediately with X-Cache: HIT, bypassing both the
-guardrail and (in the future) the LLM call.
+Execution layers (in order):
+  1. Security middleware — reject payloads > 64 KB before reading a byte.
+  2. Guardrail (Phase 3) — ONNX + FAISS prompt-injection detector with
+     fail-open degradation on timeout/error.
+  3. Semantic Cache (Phase 4) — FAISS dual-lock cache (entity + vector).
+  4. Multi-Engine Router (Phase 5) — dispatches to vLLM, llama.cpp, Colab
+     T4, or the custom runtime placeholder.  Uses StreamingResponse for
+     token-by-token SSE output.
 """
 
 # ---------------------------------------------------------------------------
 # IMPORTS
 # ---------------------------------------------------------------------------
 # FastAPI is our web framework. Pydantic defines the data shapes.
-# We use `requests`-style models for the OpenAI-compatible schema.
+# StreamingResponse sends OpenAI-compatible SSE tokens to the client.
 # JSONResponse lets us return custom payloads from the middleware.
 # ---------------------------------------------------------------------------
 import asyncio
+import json
 import logging
 import time
 import uuid
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, AsyncIterator
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 # The CPU Guardrail (Phase 3) — ONNX + FAISS prompt-injection detector.
@@ -48,6 +43,12 @@ from guardrail import guardrail as _guardrail_instance
 # The Semantic Cache (Phase 4) — FAISS IndexIDMap + LRU eviction cache.
 import semantic_cache as _cache_module
 from semantic_cache import semantic_cache as _cache_instance
+
+# The Multi-Engine Router (Phase 5) — dispatches to vLLM, llama.cpp, Colab, etc.
+from adapters.router import EngineRouter
+
+# Create the global router instance that all requests share.
+_router = EngineRouter()
 
 # Set up a logger so we can log guardrail degradation events.
 logger = logging.getLogger("gateway")
@@ -108,6 +109,13 @@ class ChatCompletionRequest(BaseModel):
     messages: List[Message]
     temperature: Optional[float] = Field(default=1.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
+    engine: Optional[str] = Field(
+        default="vllm_local",
+        description=(
+            "Target engine: vllm_local, llamacpp_local, colab_cloud, "
+            "or custom_runtime.  Defaults to vllm_local."
+        ),
+    )
 
 
 class Choice(BaseModel):
@@ -295,7 +303,7 @@ async def create_chat_completion(
     request: Request,
 ):
     """
-    Chat completion endpoint with guardrail (fail-open) + semantic cache.
+    Chat completion endpoint with guardrail + semantic cache + multi-engine router.
 
     Execution order:
       1. Parse request body.
@@ -304,8 +312,10 @@ async def create_chat_completion(
       4. If TimeoutError/Exception -> degraded = True, proceed (fail-open).
       5. cache.check_cache(messages).
       6. Cache Hit -> HTTP 200 + X-Cache: HIT [+ X-Guardrail-Degraded].
-      7. Cache Miss -> LLM Mock -> cache.insert() -> HTTP 200 + X-Cache: MISS
-         [+ X-Guardrail-Degraded].
+      7. Cache Miss -> route to selected engine via StreamingResponse.
+         Tokens are streamed as SSE.  After stream completes, the full
+         response is inserted into the cache.
+         Headers: X-Cache: MISS [+ X-Guardrail-Degraded].
     """
     # --- Step 1: Parse / extract the last user message ---
     messages_dicts = [
@@ -371,39 +381,82 @@ async def create_chat_completion(
             headers=headers,
         )
 
-    # --- Step 7: Cache Miss — mock, insert, return ---
-    mock_reply = (
-        f"This is a mock response from the Landauer's Limit gateway. "
-        f"You said: \"{last_user_message[:50]}{'...' if len(last_user_message) > 50 else ''}\""
-    )
+    # --- Step 7: Cache Miss — route to selected engine, stream, cache ---
+    # We build an async generator that:
+    #   1. Streams SSE tokens to the client via StreamingResponse.
+    #   2. Accumulates the full response text.
+    #   3. After streaming completes, inserts the full response into the cache.
+    # This keeps the cache populated for future hits without buffering the
+    # entire response before sending the first token.
 
-    response = ChatCompletionResponse(
-        id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
-        object="chat.completion",
-        created=int(time.time()),
-        model=request_body.model,
-        choices=[
-            Choice(
-                index=0,
-                message=Message(role="assistant", content=mock_reply),
-                finish_reason="stop",
-            )
-        ],
-        usage={
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        },
-    )
+    async def streaming_generator() -> AsyncIterator[str]:
+        """
+        Async generator that yields SSE-encoded tokens from the engine router
+        and caches the completed response after the stream ends.
+        """
+        full_content = ""
+        stream_failed = False
 
-    response_dict = response.model_dump()
-    await _cache_instance.insert(messages_dicts, response_dict)
+        try:
+            async for token in _router.route_request(
+                request_body.engine, last_user_message,
+            ):
+                full_content += token
+                # Yield an OpenAI-compatible SSE delta chunk.
+                chunk = {
+                    "choices": [
+                        {
+                            "delta": {"content": token},
+                            "index": 0,
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
 
-    headers = {"X-Cache": "MISS"}
+        except RuntimeError as exc:
+            # Engine failure — stream an error token so the client sees it.
+            stream_failed = True
+            error_text = f" [Engine error: {exc}] "
+            yield f"data: {json.dumps({'choices': [{'delta': {'content': error_text}, 'index': 0}]})}\n\n"
+            logger.error("Stream failed for engine '%s': %s", request_body.engine, exc)
+
+        finally:
+            # Signal the end of the SSE stream.
+            yield "data: [DONE]\n\n"
+
+            # Cache the full response only if streaming succeeded.
+            if not stream_failed and full_content:
+                response = ChatCompletionResponse(
+                    id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                    object="chat.completion",
+                    created=int(time.time()),
+                    model=request_body.model,
+                    choices=[
+                        Choice(
+                            index=0,
+                            message=Message(role="assistant", content=full_content),
+                            finish_reason="stop",
+                        )
+                    ],
+                    usage={
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                )
+                await _cache_instance.insert(messages_dicts, response.model_dump())
+                logger.info(
+                    "Cache inserted for engine='%s' (%d chars).",
+                    request_body.engine, len(full_content),
+                )
+
+    # Build the response headers.
+    stream_headers = {"X-Cache": "MISS"}
     if degraded:
-        headers["X-Guardrail-Degraded"] = "true"
-    return JSONResponse(
-        status_code=200,
-        content=response_dict,
-        headers=headers,
+        stream_headers["X-Guardrail-Degraded"] = "true"
+
+    return StreamingResponse(
+        streaming_generator(),
+        media_type="text/event-stream",
+        headers=stream_headers,
     )

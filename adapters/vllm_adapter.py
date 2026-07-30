@@ -1,0 +1,174 @@
+"""
+vllm_adapter.py
+===============
+PHASE 5 — vLLM Local Engine Adapter.
+
+Connects to a local vLLM OpenAI-compatible server (default:
+http://localhost:8000/v1) via httpx.  Before generating, it runs
+nvidia-smi to check that available VRAM is above a minimum threshold
+so we can catch OOM conditions early instead of mid-generation.
+
+Key behaviours:
+- On startup check: queries nvidia-smi and rejects if VRAM is too low.
+- On HTTP errors: logs exact memory stats and raises a clear exception
+  so the router can fall back to another engine.
+"""
+
+import asyncio
+import logging
+import shlex
+from typing import AsyncIterator, Dict, Any
+
+import httpx
+
+logger = logging.getLogger("VLLMAdapter")
+
+# Default endpoint for a local vLLM server running in OpenAI-compatible mode.
+DEFAULT_BASE_URL = "http://localhost:8000/v1"
+# Minimum free VRAM in MB required before we attempt generation.
+MIN_VRAM_MB = 512
+
+
+class VLLMAdapter:
+    """
+    Adapter for a local vLLM OpenAI-compatible server.
+
+    Parameters
+    ----------
+    base_url : str
+        The base URL of the vLLM server (default http://localhost:8000/v1).
+    """
+
+    def __init__(self, base_url: str = DEFAULT_BASE_URL):
+        self.base_url = base_url.rstrip("/")
+        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=300.0)
+
+    # ------------------------------------------------------------------
+    # VRAM pre-check
+    # ------------------------------------------------------------------
+
+    async def _check_vram(self) -> Dict[str, Any]:
+        """
+        Run nvidia-smi and parse total / free VRAM.
+
+        Returns a dict with keys {total_mb, free_mb, oom_risk}.
+        """
+        try:
+            # Use subprocess to run nvidia-smi once for both total and free.
+            proc = await asyncio.create_subprocess_shell(
+                'nvidia-smi --query-gpu=memory.total,memory.free '
+                '--format=csv,noheader,nounits',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            output = stdout.decode().strip()
+
+            if not output:
+                logger.warning("nvidia-smi returned empty output.")
+                return {"total_mb": 0, "free_mb": 0, "oom_risk": True}
+
+            parts = output.split(",")
+            total_mb = int(parts[0].strip())
+            free_mb = int(parts[1].strip())
+            oom_risk = free_mb < MIN_VRAM_MB
+
+            logger.info(
+                "VRAM check: total=%d MB, free=%d MB, oom_risk=%s",
+                total_mb, free_mb, oom_risk,
+            )
+            return {"total_mb": total_mb, "free_mb": free_mb, "oom_risk": oom_risk}
+
+        except Exception as exc:
+            logger.exception("Failed to query nvidia-smi: %s", exc)
+            # If we cannot read VRAM, assume safe but log the failure.
+            return {"total_mb": 0, "free_mb": 0, "oom_risk": False}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def generate(self, prompt: str) -> AsyncIterator[str]:
+        """
+        Stream a completion from the local vLLM server.
+
+        Steps:
+          1. Check available VRAM before sending the request.
+          2. POST to /v1/chat/completions with streaming enabled.
+          3. Parse server-sent events and yield token content.
+        """
+        # Step 1: VRAM pre-check — bail early if memory is too low.
+        vram = await self._check_vram()
+        if vram["oom_risk"]:
+            raise RuntimeError(
+                f"Engine vLLM degraded: OOM risk detected. "
+                f"Free VRAM = {vram['free_mb']} MB (< {MIN_VRAM_MB} MB threshold)."
+            )
+
+        # Step 2: Build the streaming payload.
+        payload = {
+            "model": "default",
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": True,
+        }
+
+        try:
+            async with self._client.stream(
+                "POST", "/chat/completions", json=payload,
+            ) as response:
+                response.raise_for_status()
+                # Step 3: Parse SSE event stream.
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or line == "data: [DONE]":
+                        continue
+                    if line.startswith("data: "):
+                        import json
+                        data = json.loads(line[6:])
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "vLLM HTTP error: %s — VRAM at time of failure: "
+                "total=%d MB, free=%d MB",
+                exc, vram["total_mb"], vram["free_mb"],
+            )
+            raise RuntimeError(
+                f"Engine vLLM returned HTTP {exc.response.status_code}. "
+                f"VRAM: {vram['free_mb']} MB free / {vram['total_mb']} MB total."
+            )
+
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            logger.error("vLLM connection failed: %s", exc)
+            raise RuntimeError(
+                f"Engine vLLM unreachable at {self.base_url}. "
+                f"VRAM: {vram['free_mb']} MB free."
+            )
+
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Check if the vLLM server is reachable and has sufficient VRAM.
+        """
+        vram = await self._check_vram()
+        try:
+            resp = await self._client.get("/models", timeout=5.0)
+            if resp.status_code == 200 and not vram["oom_risk"]:
+                return {"status": "ok", "vram": vram}
+            return {
+                "status": "degraded",
+                "reason": "vLLM unreachable or low VRAM",
+                "vram": vram,
+            }
+        except Exception as exc:
+            return {
+                "status": "degraded",
+                "reason": str(exc),
+                "vram": vram,
+            }
+
+    async def close(self):
+        """Release the httpx client session."""
+        await self._client.aclose()
