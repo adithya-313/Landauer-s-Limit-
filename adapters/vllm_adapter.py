@@ -42,6 +42,27 @@ class VLLMAdapter:
     def __init__(self, base_url: str = DEFAULT_BASE_URL):
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=300.0)
+        self._startup_check_done = False
+
+    async def _ensure_startup_check(self):
+        """
+        Run the VRAM sanity check only once per adapter lifecycle.
+        If VRAM is low, we verify if the server is actually alive. If it's alive, 
+        vLLM is just reserving the memory by design. If it's dead, we raise the startup error.
+        """
+        if not self._startup_check_done:
+            self._startup_check_done = True
+            vram = await self._check_vram()
+            if vram["oom_risk"]:
+                try:
+                    resp = await self._client.get("/models", timeout=5.0)
+                    resp.raise_for_status()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Engine vLLM degraded at startup: OOM risk detected. "
+                        f"Free VRAM = {vram['free_mb']} MB (< {MIN_VRAM_MB} MB threshold). "
+                        f"Server is also unreachable: {exc}"
+                    )
 
     # ------------------------------------------------------------------
     # VRAM pre-check
@@ -93,19 +114,27 @@ class VLLMAdapter:
         Stream a completion from the local vLLM server.
 
         Steps:
-          1. Check available VRAM before sending the request.
-          2. POST to /v1/chat/completions with streaming enabled.
-          3. Parse server-sent events and yield token content.
+          1. Ensure startup VRAM sanity check has run once.
+          2. Perform a lightweight liveness check (GET /models).
+          3. POST to /v1/chat/completions with streaming enabled.
+          4. Parse server-sent events and yield token content.
         """
-        # Step 1: VRAM pre-check — bail early if memory is too low.
-        vram = await self._check_vram()
-        if vram["oom_risk"]:
+        # Step 1: Ensure startup check
+        await self._ensure_startup_check()
+
+        # Step 2: Lightweight liveness check instead of per-request VRAM check
+        try:
+            liveness_resp = await self._client.get("/models", timeout=5.0)
+            liveness_resp.raise_for_status()
+        except Exception as exc:
+            vram = await self._check_vram()
+            logger.error("vLLM liveness check failed: %s", exc)
             raise RuntimeError(
-                f"Engine vLLM degraded: OOM risk detected. "
-                f"Free VRAM = {vram['free_mb']} MB (< {MIN_VRAM_MB} MB threshold)."
+                f"vLLM server unreachable or unhealthy at {self.base_url} ({exc}). "
+                f"Free VRAM = {vram['free_mb']} MB / {vram['total_mb']} MB total — likely resource exhaustion."
             )
 
-        # Step 2: Build the streaming payload.
+        # Step 3: Build the streaming payload.
         payload = {
             "model": "default",
             "messages": [{"role": "user", "content": prompt}],
@@ -117,7 +146,7 @@ class VLLMAdapter:
                 "POST", "/chat/completions", json=payload,
             ) as response:
                 response.raise_for_status()
-                # Step 3: Parse SSE event stream.
+                # Step 4: Parse SSE event stream.
                 async for line in response.aiter_lines():
                     line = line.strip()
                     if not line or line == "data: [DONE]":
@@ -131,6 +160,7 @@ class VLLMAdapter:
                             yield content
 
         except httpx.HTTPStatusError as exc:
+            vram = await self._check_vram()
             logger.error(
                 "vLLM HTTP error: %s — VRAM at time of failure: "
                 "total=%d MB, free=%d MB",
@@ -142,6 +172,7 @@ class VLLMAdapter:
             )
 
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            vram = await self._check_vram()
             logger.error("vLLM connection failed: %s", exc)
             raise RuntimeError(
                 f"Engine vLLM unreachable at {self.base_url}. "
@@ -150,22 +181,34 @@ class VLLMAdapter:
 
     async def health_check(self) -> Dict[str, Any]:
         """
-        Check if the vLLM server is reachable and has sufficient VRAM.
+        Check if the vLLM server is reachable.
         """
-        vram = await self._check_vram()
         try:
-            resp = await self._client.get("/models", timeout=5.0)
-            if resp.status_code == 200 and not vram["oom_risk"]:
-                return {"status": "ok", "vram": vram}
+            await self._ensure_startup_check()
+        except RuntimeError as e:
+            vram = await self._check_vram()
             return {
                 "status": "degraded",
-                "reason": "vLLM unreachable or low VRAM",
+                "reason": str(e),
+                "vram": vram,
+            }
+
+        try:
+            resp = await self._client.get("/models", timeout=5.0)
+            if resp.status_code == 200:
+                return {"status": "ok"}
+            
+            vram = await self._check_vram()
+            return {
+                "status": "degraded",
+                "reason": f"vLLM returned HTTP {resp.status_code}",
                 "vram": vram,
             }
         except Exception as exc:
+            vram = await self._check_vram()
             return {
                 "status": "degraded",
-                "reason": str(exc),
+                "reason": f"vLLM unreachable: {str(exc)}",
                 "vram": vram,
             }
 

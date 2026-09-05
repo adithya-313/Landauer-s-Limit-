@@ -9,8 +9,6 @@ What this script does:
 3. Tags 20 of them as "drift_eval" samples for later evaluation.
 4. Saves everything into `test_dataset.json` in a standardised schema.
 
-We write this code like a story — every block explains itself in plain English,
-so a Junior Developer can read it and understand exactly what is happening.
 """
 
 # ---------------------------------------------------------------------------
