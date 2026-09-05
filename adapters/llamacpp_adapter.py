@@ -32,10 +32,20 @@ class LlamaCppAdapter:
     base_url : str
         The base URL of the Ollama or llama.cpp server
         (default http://localhost:11434).
+    model_name : str
+        The Ollama model tag to request. Must match exactly what
+        `ollama list` shows. Default is "qwen2.5:1.5b" for consistency
+        with the AWQ and FP16 tiers (project decision: all tiers use
+        Qwen2.5 where a compatible checkpoint exists).
     """
 
-    def __init__(self, base_url: str = DEFAULT_BASE_URL):
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        model_name: str = "qwen2.5:1.5b",
+    ):
         self.base_url = base_url.rstrip("/")
+        self.model_name = model_name
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=300.0)
 
     # ------------------------------------------------------------------
@@ -51,8 +61,12 @@ class LlamaCppAdapter:
           2. Read JSON lines from the response body.
           3. Extract the "response" field and yield it.
         """
+        # The 'model' key must match the Ollama model tag exactly
+        # (as shown by `ollama list`). Using qwen2.5:1.5b to align with
+        # the Qwen2.5 family used in the AWQ and FP16 tiers — switched
+        # from the previous hardcoded "llama3" per project decision.
         payload = {
-            "model": "llama3",
+            "model": self.model_name,
             "prompt": prompt,
             "stream": True,
         }
