@@ -39,8 +39,13 @@ class VLLMAdapter:
         The base URL of the vLLM server (default http://localhost:8000/v1).
     """
 
-    def __init__(self, base_url: str = DEFAULT_BASE_URL):
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct-AWQ",
+    ):
         self.base_url = base_url.rstrip("/")
+        self.model_name = model_name
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=300.0)
         self._startup_check_done = False
 
@@ -135,8 +140,10 @@ class VLLMAdapter:
             )
 
         # Step 3: Build the streaming payload.
+        # The 'model' key MUST match exactly the model ID that the vLLM server 
+        # was launched with (e.g., via `--model`), otherwise it returns HTTP 404.
         payload = {
-            "model": "default",
+            "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
         }
