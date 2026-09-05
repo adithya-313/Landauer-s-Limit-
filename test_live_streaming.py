@@ -97,7 +97,9 @@ async def test_colab_adapter_live_streaming():
     that streamed SSE token chunks are yielded over the tunnel. If the cloud tunnel
     endpoint is unreachable or retries exhaust, pytest.skip() is invoked.
     """
-    adapter = ColabAdapter()
+    import os
+    tunnel_url = os.environ.get("COLAB_TUNNEL_URL", "http://localhost:8888/v1")
+    adapter = ColabAdapter(tunnel_url=tunnel_url)
     prompt = "Explain Landauer's principle in one short sentence."
     tokens = []
 

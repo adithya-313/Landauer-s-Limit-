@@ -41,8 +41,13 @@ class ColabAdapter:
         The Ngrok tunnel base URL.
     """
 
-    def __init__(self, tunnel_url: str = DEFAULT_TUNNEL_URL):
+    def __init__(
+        self,
+        tunnel_url: str = DEFAULT_TUNNEL_URL,
+        model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
+    ):
         self.tunnel_url = tunnel_url.rstrip("/")
+        self.model_name = model_name
         self._client = httpx.AsyncClient(base_url=self.tunnel_url, timeout=300.0)
 
     # ------------------------------------------------------------------
@@ -57,7 +62,7 @@ class ColabAdapter:
         Logs every request with [BEST-EFFORT CLOUD TIER] for observability.
         """
         payload = {
-            "model": "default",
+            "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
         }
