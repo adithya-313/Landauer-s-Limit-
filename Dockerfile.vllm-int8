@@ -1,0 +1,17 @@
+# This file creates a custom Docker image extending the official vLLM image.
+# It exists because the official vllm/vllm-openai:latest image does not 
+# include the 'bitsandbytes' library by default.
+# The 'bitsandbytes' library is required to support on-the-fly INT8 quantization.
+# 
+# How to build:
+#   docker build -f Dockerfile.vllm-int8 -t vllm-int8-local .
+#
+# How to use:
+#   Replace 'vllm/vllm-openai:latest' with 'vllm-int8-local' in your docker run command,
+#   and use '--quantization bitsandbytes' and '--load-format bitsandbytes' arguments.
+
+# Start from the official vLLM image
+FROM vllm/vllm-openai:latest
+
+# Install the bitsandbytes library using pip
+RUN pip install bitsandbytes
