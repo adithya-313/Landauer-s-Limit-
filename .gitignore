@@ -12,3 +12,5 @@ validate.py
 # Environment
 venv/
 .env
+
+queue_events.jsonl
