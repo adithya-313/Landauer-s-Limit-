@@ -116,6 +116,10 @@ class ChatCompletionRequest(BaseModel):
             "or custom_runtime.  Defaults to vllm_local."
         ),
     )
+    tier: Literal["free", "premium"] = Field(
+        default="free",
+        description="Priority tier for request execution."
+    )
 
 
 class Choice(BaseModel):
