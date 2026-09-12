@@ -46,9 +46,13 @@ from semantic_cache import semantic_cache as _cache_instance
 
 # The Multi-Engine Router (Phase 5) — dispatches to vLLM, llama.cpp, Colab, etc.
 from adapters.router import EngineRouter
+from request_queue import RequestQueue
 
 # Create the global router instance that all requests share.
 _router = EngineRouter()
+
+# Create the global request queue (Phase 6a)
+_request_queue = RequestQueue(max_size=50)
 
 # Set up a logger so we can log guardrail degradation events.
 logger = logging.getLogger("gateway")
@@ -287,6 +291,38 @@ async def on_startup():
         _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
         _guardrail_module.SIMILARITY_THRESHOLD,
     )
+    
+    # Start the single background queue worker
+    asyncio.create_task(queue_worker())
+
+async def queue_worker():
+    """
+    Background worker loop that dequeues requests and executes them via the router.
+    It runs continuously for the lifetime of the application.
+    """
+    while True:
+        try:
+            # Pull one request at a time from the queue (blocks until available)
+            item = await _request_queue._get_next()
+            
+            # Since only one request is processed at a time end-to-end,
+            # we use a per-request response_queue to bridge the worker's output
+            # back to the specific waiting caller's HTTP response.
+            async for token in _router.route_request(item.engine, item.prompt):
+                await item.response_queue.put({"type": "token", "content": token})
+                
+            # Signal the end of the stream for this request
+            await item.response_queue.put({"type": "done"})
+            
+        except Exception as e:
+            # If the router call raises an error, log it and return a clean error 
+            # to the waiting caller so they aren't stuck waiting forever.
+            # We wrap this in a broad try/except so the worker loop itself never crashes,
+            # allowing it to continue serving subsequent queued requests (fault tolerance).
+            logger.error("Error processing request %s: %s", getattr(item, "request_id", "unknown"), e)
+            _request_queue._log_event("error", getattr(item, "request_id", "unknown"), getattr(item, "tier", "unknown"))
+            if 'item' in locals() and hasattr(item, 'response_queue'):
+                await item.response_queue.put({"type": "error", "error": str(e)})
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +429,21 @@ async def create_chat_completion(
     # This keeps the cache populated for future hits without buffering the
     # entire response before sending the first token.
 
+    # Build a per-request asyncio.Queue to receive tokens from the background worker.
+    # This bridges the gap between the single background worker and this specific HTTP client.
+    response_queue = asyncio.Queue()
+    
+    try:
+        req_id = await _request_queue.enqueue(
+            engine=request_body.engine,
+            prompt=last_user_message,
+            tier=request_body.tier,
+            response_queue=response_queue
+        )
+    except RuntimeError as e:
+        # The queue is full, gracefully reject the request immediately rather than blocking
+        return JSONResponse(status_code=429, content={"error": str(e)})
+
     async def streaming_generator() -> AsyncIterator[str]:
         """
         Async generator that yields SSE-encoded tokens from the engine router
@@ -402,27 +453,31 @@ async def create_chat_completion(
         stream_failed = False
 
         try:
-            async for token in _router.route_request(
-                request_body.engine, last_user_message,
-            ):
-                full_content += token
-                # Yield an OpenAI-compatible SSE delta chunk.
-                chunk = {
-                    "choices": [
-                        {
-                            "delta": {"content": token},
-                            "index": 0,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
-
-        except RuntimeError as exc:
-            # Engine failure — stream an error token so the client sees it.
-            stream_failed = True
-            error_text = f" [Engine error: {exc}] "
-            yield f"data: {json.dumps({'choices': [{'delta': {'content': error_text}, 'index': 0}]})}\n\n"
-            logger.error("Stream failed for engine '%s': %s", request_body.engine, exc)
+            while True:
+                msg = await response_queue.get()
+                
+                if msg["type"] == "done":
+                    break
+                elif msg["type"] == "error":
+                    # Engine failure — stream an error token so the client sees it.
+                    stream_failed = True
+                    error_text = f" [Engine error: {msg['error']}] "
+                    yield f"data: {json.dumps({'choices': [{'delta': {'content': error_text}, 'index': 0}]})}\n\n"
+                    logger.error("Stream failed for engine '%s': %s", request_body.engine, msg["error"])
+                    break
+                else:
+                    token = msg["content"]
+                    full_content += token
+                    # Yield an OpenAI-compatible SSE delta chunk.
+                    chunk = {
+                        "choices": [
+                            {
+                                "delta": {"content": token},
+                                "index": 0,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n"
 
         finally:
             # Signal the end of the SSE stream.
