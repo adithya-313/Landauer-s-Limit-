@@ -33,6 +33,27 @@ class RequestQueue:
         self.max_size = max_size
         self.queue = asyncio.PriorityQueue()
         
+    def _log_event(self, event_type: str, request_id: str, tier: str, wait_seconds: float = None):
+        """
+        Appends a structured JSON event to queue_events.jsonl.
+        Using plain file append for simplicity and to match the absence of complex
+        centralised logging infra in the repo.
+        """
+        event = {
+            "event": event_type,
+            "request_id": request_id,
+            "tier": tier,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        if wait_seconds is not None:
+            event["wait_seconds"] = wait_seconds
+            
+        try:
+            with open("queue_events.jsonl", "a") as f:
+                f.write(json.dumps(event) + "\n")
+        except Exception as e:
+            logger.error("Failed to log queue event: %s", e)
+
     async def enqueue(self, engine: str, prompt: str, tier: str, response_queue: asyncio.Queue) -> str:
         """
         Add a request to the queue. Returns request_id.
@@ -40,6 +61,7 @@ class RequestQueue:
         """
         # Reject immediately if full to gracefully degrade
         if self.queue.qsize() >= self.max_size:
+            self._log_event("rejected", "N/A", tier)
             raise RuntimeError("Queue is full, cannot accept more requests.")
             
         request_id = str(uuid.uuid4())
@@ -56,6 +78,7 @@ class RequestQueue:
         )
         
         await self.queue.put(item)
+        self._log_event("enqueued", request_id, tier)
         return request_id
         
     async def _get_next(self) -> QueueItem:
@@ -65,4 +88,5 @@ class RequestQueue:
         """
         item = await self.queue.get()
         wait_seconds = round(time.time() - item.enqueue_time, 4)
+        self._log_event("dequeued", item.request_id, item.tier, wait_seconds)
         return item
