@@ -295,6 +295,23 @@ async def on_startup():
     # Start the single background queue worker
     asyncio.create_task(queue_worker())
 
+async def _handle_request(item):
+    """
+    Handles a single dequeued request concurrently.
+    """
+    try:
+        async for token in _router.route_request(item.engine, item.prompt):
+            await item.response_queue.put({"type": "token", "content": token})
+            
+        # Signal the end of the stream for this request
+        await item.response_queue.put({"type": "done"})
+        
+    except Exception as e:
+        logger.error("Error processing request %s: %s", getattr(item, "request_id", "unknown"), e)
+        _request_queue._log_event("error", getattr(item, "request_id", "unknown"), getattr(item, "tier", "unknown"))
+        if 'item' in locals() and hasattr(item, 'response_queue'):
+            await item.response_queue.put({"type": "error", "error": str(e)})
+
 async def queue_worker():
     """
     Background worker loop that dequeues requests and executes them via the router.
@@ -305,24 +322,12 @@ async def queue_worker():
             # Pull one request at a time from the queue (blocks until available)
             item = await _request_queue._get_next()
             
-            # Since only one request is processed at a time end-to-end,
-            # we use a per-request response_queue to bridge the worker's output
-            # back to the specific waiting caller's HTTP response.
-            async for token in _router.route_request(item.engine, item.prompt):
-                await item.response_queue.put({"type": "token", "content": token})
-                
-            # Signal the end of the stream for this request
-            await item.response_queue.put({"type": "done"})
+            # Dispatch the request to a concurrent task so the queue_worker
+            # does not block and can immediately pull the next queued item.
+            asyncio.create_task(_handle_request(item))
             
         except Exception as e:
-            # If the router call raises an error, log it and return a clean error 
-            # to the waiting caller so they aren't stuck waiting forever.
-            # We wrap this in a broad try/except so the worker loop itself never crashes,
-            # allowing it to continue serving subsequent queued requests (fault tolerance).
-            logger.error("Error processing request %s: %s", getattr(item, "request_id", "unknown"), e)
-            _request_queue._log_event("error", getattr(item, "request_id", "unknown"), getattr(item, "tier", "unknown"))
-            if 'item' in locals() and hasattr(item, 'response_queue'):
-                await item.response_queue.put({"type": "error", "error": str(e)})
+            logger.error("Queue worker dispatch error: %s", e)
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from transformers.cache_utils import DynamicCache, DynamicLayer
 import json
 import time
+import uuid
+import threading
+import queue
 from typing import List, Dict, Optional
 
 # ------------------------------------------------------------------
@@ -18,10 +21,11 @@ class RequestState:
     """
     Holds the per-request state for dynamic continuous batching.
     """
-    def __init__(self, request_id: str, prompt: str, prompt_len: int):
+    def __init__(self, request_id: str, prompt: str, prompt_len: int, response_queue: queue.Queue):
         self.request_id = request_id
         self.prompt = prompt
         self.prompt_len = prompt_len
+        self.response_queue = response_queue
         self.token_ids: List[int] = []
         self.finished = False
         self.tokens_produced = 0
@@ -58,7 +62,6 @@ def combine_caches(caches: List[DynamicCache], max_len: int) -> DynamicCache:
                 
             pad_len = max_len - k.shape[2]
             if pad_len > 0:
-                # Left-pad on the seq_len dimension (dim 2)
                 k = torch.nn.functional.pad(k, (0, 0, pad_len, 0))
                 v = torch.nn.functional.pad(v, (0, 0, pad_len, 0))
             k_tensors.append(k)
@@ -99,7 +102,6 @@ def split_cache(combined: DynamicCache, orig_lens: List[int]) -> List[DynamicCac
             
         for b, orig_len in enumerate(orig_lens):
             new_len = orig_len + 1
-            # Slice out the valid tokens from the right side of the padded tensor
             k_slice = k_comb[b:b+1, :, -new_len:, :]
             v_slice = v_comb[b:b+1, :, -new_len:, :]
             
@@ -118,18 +120,12 @@ def split_cache(combined: DynamicCache, orig_lens: List[int]) -> List[DynamicCac
 class BatchEngine:
     def __init__(self, model_id: str = "Qwen/Qwen2.5-1.5B-Instruct"):
         print("Initializing BatchEngine...")
-        # Load tokenizer with left-padding. 
-        # Left-padding ensures that the most recent token (the end of the sequence) 
-        # is aligned across all batch items. This makes position IDs and causal masks 
-        # much simpler to handle for next-token generation on variable-length sequences.
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
         
-        # Qwen models usually don't have a pad_token set by default
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
         print("Loading model in 4-bit...")
-        # Load in 4-bit as verified in the preflight
         quant_config = BitsAndBytesConfig(load_in_4bit=True)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
@@ -141,51 +137,74 @@ class BatchEngine:
         # Initialize event log
         with open("batch_events.jsonl", "w") as f:
             pass
+            
+        self.pending_queue = queue.Queue()
+        self.thread = None
+        self.running = False
+        
+    def start(self):
+        """Start the background thread for continuous batching."""
+        if not self.running:
+            self.running = True
+            self.thread = threading.Thread(target=self._run_loop, daemon=True)
+            self.thread.start()
+            
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+
+    def submit(self, prompt: str) -> tuple[str, queue.Queue]:
+        """
+        Thread-safe method to submit a prompt.
+        Returns the request_id and a queue.Queue that will receive tokens.
+        """
+        req_id = f"req-{uuid.uuid4().hex[:8]}"
+        resp_q = queue.Queue()
+        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q})
+        return req_id, resp_q
+
+    def get_stats(self) -> dict:
+        """Helper to return current stats safely."""
+        return {
+            "status": "running" if self.running else "stopped",
+            "pending": self.pending_queue.qsize()
+        }
 
     def _log_event(self, event: dict):
         event["timestamp"] = time.time()
-        with open("batch_events.jsonl", "a") as f:
-            f.write(json.dumps(event) + "\n")
+        try:
+            with open("batch_events.jsonl", "a") as f:
+                f.write(json.dumps(event) + "\n")
+        except Exception:
+            pass
 
-    def run_queue(self, initial_queue: List[Dict], arrival_delays: List[float] = None) -> Dict[str, str]:
+    def _run_loop(self):
         """
-        Runs the full continuous batching loop until all requests are finished.
-        Allows simulating arrival delays.
+        The continuous batching core loop, running in a dedicated thread.
         """
-        queue = initial_queue.copy()
         active_slots: List[RequestState] = []
-        completed_outputs = {}
         
-        start_time = time.time()
-        
-        while queue or active_slots:
-            current_time = time.time() - start_time
-            
-            # 1. Slot Admission (Prefill)
+        while self.running:
             admitted_this_step = []
             
-            # We can only admit if we have free slots and there are requests in the queue
-            while len(active_slots) < MAX_SLOTS and queue:
-                # Check simulated arrival time
-                idx = len(initial_queue) - len(queue)
-                if arrival_delays and current_time < arrival_delays[idx]:
-                    break # Not arrived yet
-                    
-                next_req = queue[0]
-                # Pre-calculate prompt length to check token budget
+            # 1. Slot Admission (Prefill)
+            while len(active_slots) < MAX_SLOTS and not self.pending_queue.empty():
+                # Peek at the next request without blocking
+                next_req = self.pending_queue.queue[0]
+                
+                # Check token budget
                 inputs = self.tokenizer(next_req["prompt"], return_tensors="pt").to(self.device)
                 prompt_len = inputs.input_ids.shape[1]
                 
                 current_live_tokens = sum((s.prompt_len + s.tokens_produced) for s in active_slots)
                 if current_live_tokens + prompt_len > TOKEN_BUDGET:
-                    break # Budget exceeded, cannot admit
+                    break # Budget exceeded
                 
-                # We have capacity, admit the request!
-                queue.pop(0)
-                state = RequestState(next_req["id"], next_req["prompt"], prompt_len)
+                # Admit
+                next_req = self.pending_queue.get()
+                state = RequestState(next_req["id"], next_req["prompt"], prompt_len, next_req["response_queue"])
                 
-                # Perform the PREFILL pass separately for this single request
-                # This initializes its KV cache with the full prompt context.
                 cache = DynamicCache()
                 with torch.no_grad():
                     outputs = self.model(**inputs, past_key_values=cache)
@@ -196,37 +215,33 @@ class BatchEngine:
                 state.tokens_produced += 1
                 state.slot_index = len(active_slots)
                 
+                # Send the first generated token back immediately
+                first_token = self.tokenizer.decode([state.latest_token.item()], skip_special_tokens=True)
+                if first_token:
+                    state.response_queue.put({"type": "token", "content": first_token})
+                
                 active_slots.append(state)
                 admitted_this_step.append(state.request_id)
                 
-            # If nothing is active and nothing arrived, just sleep to simulate time passing
             if not active_slots:
-                time.sleep(0.1)
+                time.sleep(0.01) # Sleep briefly to prevent 100% CPU loop
                 continue
                 
             # 2. Decode Step (Continuous Batching)
-            # Gather the single "latest token" from every active slot.
             input_ids = torch.cat([s.latest_token.view(1, 1) for s in active_slots], dim=0)
             
-            # Original lengths of the KV caches
             if hasattr(active_slots[0].cache, 'layers'):
                 orig_lens = [s.cache.layers[0].keys.shape[2] for s in active_slots]
             else:
                 orig_lens = [s.cache.key_cache[0].shape[2] for s in active_slots]
                 
             max_len = max(orig_lens)
-            
-            # Combine all individual caches into one unified batch cache
             combined_cache = combine_caches([s.cache for s in active_slots], max_len)
             
-            # Create attention mask to ignore the left-padding in the combined cache
             attention_mask = torch.zeros((len(active_slots), max_len + 1), dtype=torch.long, device=self.device)
             for b, orig_len in enumerate(orig_lens):
-                # The valid tokens are the most recent `orig_len + 1` tokens 
-                # (the existing cache + the 1 new input token)
                 attention_mask[b, -(orig_len + 1):] = 1
                 
-            # Run one batched forward pass for all active requests!
             with torch.no_grad():
                 outputs = self.model(
                     input_ids=input_ids,
@@ -234,10 +249,8 @@ class BatchEngine:
                     past_key_values=combined_cache
                 )
                 
-            # Split the unified cache back into individual sequence caches
             split_caches = split_cache(outputs.past_key_values, orig_lens)
             
-            # Update states and check for completion
             freed_this_step = []
             for b, state in enumerate(active_slots):
                 state.cache = split_caches[b]
@@ -246,12 +259,15 @@ class BatchEngine:
                 state.token_ids.append(new_token.item())
                 state.tokens_produced += 1
                 
-                # Check completion: EOS token or safety limit (e.g. 200 tokens)
-                # 200 is a reasonable default to prevent infinite loops while allowing substantial responses.
+                # Stream the new token
+                token_str = self.tokenizer.decode([new_token.item()], skip_special_tokens=True)
+                if token_str:
+                    state.response_queue.put({"type": "token", "content": token_str})
+                
                 if new_token.item() == self.tokenizer.eos_token_id or state.tokens_produced >= 200:
                     state.finished = True
+                    state.response_queue.put({"type": "done"})
                     freed_this_step.append(state.request_id)
-                    completed_outputs[state.request_id] = self.tokenizer.decode(state.token_ids, skip_special_tokens=True)
                     
             # 3. Log event
             current_live_tokens = sum((s.prompt_len + s.tokens_produced) for s in active_slots)
@@ -265,5 +281,3 @@ class BatchEngine:
             
             # 4. Remove finished slots
             active_slots = [s for s in active_slots if not s.finished]
-            
-        return completed_outputs
