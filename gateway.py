@@ -297,16 +297,28 @@ async def on_startup():
 
 async def _handle_request(item):
     """
-    Handles a single dequeued request concurrently.
+    Takes exactly one user's question from the waiting line and manages its entire lifecycle.
+    
+    Inputs:
+    - item: A bundle of information about the user's request (their question, which model they want,
+            and the specific mailbox where we should drop the answers).
+            
+    Returns:
+    - Nothing directly. Instead, it drops the answer words into the user's mailbox as they are generated.
     """
     try:
+        # Ask the router to find the right AI engine to answer this specific question.
+        # As the engine generates words one-by-one, we loop over them here.
         async for token in _router.route_request(item.engine, item.prompt):
+            # Drop the new word into the user's personal mailbox so the web server can send it to them.
             await item.response_queue.put({"type": "token", "content": token})
             
-        # Signal the end of the stream for this request
+        # The engine finished the whole answer, so we drop a special "done" message into the mailbox.
         await item.response_queue.put({"type": "done"})
         
     except Exception as e:
+        # If the engine crashes while answering, we don't want the web server to wait forever.
+        # We drop a special error message into the mailbox so the user knows something broke.
         logger.error("Error processing request %s: %s", getattr(item, "request_id", "unknown"), e)
         _request_queue._log_event("error", getattr(item, "request_id", "unknown"), getattr(item, "tier", "unknown"))
         if 'item' in locals() and hasattr(item, 'response_queue'):
@@ -314,16 +326,20 @@ async def _handle_request(item):
 
 async def queue_worker():
     """
-    Background worker loop that dequeues requests and executes them via the router.
-    It runs continuously for the lifetime of the application.
+    The main background worker that acts like a bouncer at a club.
+    It runs endlessly, pulling the next person out of the waiting line and 
+    assigning an assistant (_handle_request) to help them immediately, 
+    before turning right back to pull the next person.
     """
     while True:
         try:
-            # Pull one request at a time from the queue (blocks until available)
+            # Pull the next person's question out of the waiting line. 
+            # If the line is empty, it just waits here patiently until someone arrives.
             item = await _request_queue._get_next()
             
-            # Dispatch the request to a concurrent task so the queue_worker
-            # does not block and can immediately pull the next queued item.
+            # Instead of helping this person from start to finish itself (which would block the line),
+            # it spawns an independent "assistant" task to handle this specific person concurrently.
+            # This allows the bouncer to immediately turn back and pull the next person from the line.
             asyncio.create_task(_handle_request(item))
             
         except Exception as e:
