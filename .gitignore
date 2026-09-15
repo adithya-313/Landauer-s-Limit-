@@ -14,3 +14,4 @@ venv/
 .env
 
 queue_events.jsonl
+batch_events.jsonl

@@ -1,0 +1,16 @@
+[1789391674.08] Sending request to custom_runtime: What is 2+2?
+[1789391675.10] Sending request to custom_runtime: crash_test
+[1789391676.11] Sending request to custom_runtime: What is 3+3?
+--- SUCCESS RESPONSE FOR 'crash_test' ---
+data: {"choices": [{"delta": {"content": " [Engine error: Engine 'custom_runtime' failed and no fall...
+------------------
+--- SUCCESS RESPONSE FOR 'What is 2+2?' ---
+data: {"choices": [{"delta": {"content": " "}, "index": 0}]}
+
+data: {"choices": [{"delta": {"content...
+------------------
+--- SUCCESS RESPONSE FOR 'What is 3+3?' ---
+data: {"choices": [{"delta": {"content": " "}, "index": 0}]}
+
+data: {"choices": [{"delta": {"content...
+------------------
