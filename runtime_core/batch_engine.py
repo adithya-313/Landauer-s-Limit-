@@ -238,6 +238,7 @@ class BatchEngine:
                 
                 # We have capacity, so officially accept the request from the waiting line.
                 next_req = self.pending_queue.get()
+                
                 state = RequestState(next_req["id"], next_req["prompt"], prompt_len, next_req["response_queue"])
                 
                 # "Prefill" phase: The model reads the user's entire prompt all at once to build its initial memory.
