@@ -43,7 +43,7 @@ import torch
 import time
 import json
 import subprocess
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from transformers.cache_utils import DynamicCache, DynamicLayer
 import logging
 
@@ -89,31 +89,46 @@ class KVCacheManager:
         
         self.last_log_time = 0.0
 
-    def _allocate_block(self, active_slots: List['RequestState'], current_req_id: str) -> int:
+    def _log_event(self, event: dict):
+        """Writes a record of eviction events to the batch engine's log file."""
+        event["timestamp"] = time.time()
+        try:
+            with open("batch_events.jsonl", "a") as f:
+                f.write(json.dumps(event) + "\n")
+        except Exception:
+            pass
+
+    def _allocate_block(self, active_slots: List['RequestState'], current_state: 'RequestState') -> Optional[int]:
         """
         Pulls a free physical block from the pool.
         If empty, evicts the most recently admitted sequence (LIFO) to free space,
         protecting older sequences that have been running longer.
         """
         if not self.free_blocks:
-            self._evict_sequence(active_slots, current_req_id)
+            success = self._evict_sequence(active_slots, current_state)
+            if not success:
+                return None
             if not self.free_blocks:
                 raise RuntimeError("Failed to allocate block even after eviction attempt.")
             
         return self.free_blocks.pop(0)
 
-    def _evict_sequence(self, active_slots: List['RequestState'], current_req_id: str):
+    def _evict_sequence(self, active_slots: List['RequestState'], current_state: 'RequestState') -> bool:
         """
         DECISION: Priority-tier-based eviction policy.
         We prioritize keeping 'premium' tier requests alive over 'free' tier requests.
-        When memory pressure occurs, we search for a 'free' tier sequence to evict.
-        If multiple 'free' sequences exist, we evict the one most recently admitted 
-        (LIFO) to protect older work. If only 'premium' sequences exist, we evict 
-        the newest 'premium' one. The current request is exempt.
+        When memory pressure occurs, we check the current requester's tier.
+        If 'premium': we search for a 'free' tier sequence to evict. If none exist, we 
+        evict the newest 'premium' one. The current request is exempt.
+        If 'free': we search for a 'free' tier sequence to evict. If none exist, meaning
+        all other active requests are 'premium', the 'free' requester itself fails cleanly
+        rather than evicting a protected 'premium' request.
         
-        When evicted, the sequence is marked finished and an error is sent to its queue.
+        When evicted (or failed), the sequence is marked finished and an error is sent to its queue.
         """
         evicted_req = None
+        requester_tier = getattr(current_state, 'tier', 'free')
+        current_req_id = current_state.request_id
         
         # First, try to find a 'free' tier sequence, starting from the newest
         for state in reversed(active_slots):
@@ -121,15 +136,28 @@ class KVCacheManager:
                 evicted_req = state
                 break
                 
-        # If no 'free' sequence was found, fallback to evicting the newest 'premium'
+        # If no 'free' sequence was found, fallback behavior depends on the requester's tier
         if not evicted_req:
-            for state in reversed(active_slots):
-                if state.request_id != current_req_id:
-                    evicted_req = state
-                    break
+            if requester_tier == 'premium':
+                # Premium can evict other premium requests if absolutely necessary
+                for state in reversed(active_slots):
+                    if state.request_id != current_req_id:
+                        evicted_req = state
+                        break
+            else:
+                # Free tier CANNOT evict premium requests. It must fail its own admission.
+                current_state.finished = True
+                current_state.response_queue.put({"type": "error", "content": "OOM: Cannot admit free tier because all memory is used by premium requests"})
+                self._log_event({
+                    "event": "admission_failed",
+                    "request_id": current_req_id,
+                    "tier": requester_tier,
+                    "reason": "memory_pressure_premium_protected"
+                })
+                return False
                 
         if not evicted_req:
-            return  # No other sequence to evict
+            return False # No other sequence to evict, and we shouldn't get here for free tier
             
         # Free the blocks
         self.free_sequence(evicted_req.request_id)
@@ -138,12 +166,21 @@ class KVCacheManager:
         evicted_req.finished = True
         evicted_req.response_queue.put({"type": "error", "content": "OOM: Evicted due to memory pressure"})
         
-        logger.warning(f"Evicted request {evicted_req.request_id} (tier: {evicted_req.tier}) under memory pressure.")
+        self._log_event({
+            "event": "eviction",
+            "evicted_request_id": evicted_req.request_id,
+            "evicted_tier": getattr(evicted_req, 'tier', 'free'),
+            "requester_id": current_req_id,
+            "requester_tier": requester_tier,
+            "reason": "memory_pressure"
+        })
+        return True
 
-    def ensure_allocation(self, request_id: str, logical_length: int, active_slots: List['RequestState']):
+    def ensure_allocation(self, state: 'RequestState', logical_length: int, active_slots: List['RequestState']):
         """
         Ensures a sequence has enough physical blocks allocated for its logical length.
         """
+        request_id = state.request_id
         if request_id not in self.page_table:
             self.page_table[request_id] = []
             
@@ -151,7 +188,9 @@ class KVCacheManager:
         current_blocks = len(self.page_table[request_id])
         
         while current_blocks < blocks_needed:
-            phys_block = self._allocate_block(active_slots, request_id)
+            phys_block = self._allocate_block(active_slots, state)
+            if phys_block is None:
+                return # Allocation failed
             self.page_table[request_id].append(phys_block)
             current_blocks += 1
 
@@ -173,10 +212,13 @@ class KVCacheManager:
         else:
             seq_len = cache.key_cache[0].shape[2]
             
-        self.ensure_allocation(state.request_id, seq_len, active_slots)
+        self.ensure_allocation(state, seq_len, active_slots)
         
+        if getattr(state, 'finished', False):
+            return # Aborted due to OOM
+            
         # Write the data into blocks
-        blocks = self.page_table[state.request_id]
+        blocks = self.page_table.get(state.request_id, [])
         
         # To avoid a slow Python loop over all layers and tokens, we copy layer by layer
         for layer_idx in range(NUM_LAYERS):
@@ -255,14 +297,19 @@ class KVCacheManager:
             new_seq_len = state.prompt_len + state.tokens_produced + 1
             
             # Ensure block exists for this new length
-            self.ensure_allocation(state.request_id, new_seq_len, active_slots)
+            self.ensure_allocation(state, new_seq_len, active_slots)
             
-            blocks = self.page_table[state.request_id]
+            if getattr(state, 'finished', False):
+                continue # Aborted due to OOM
+                
+            blocks = self.page_table.get(state.request_id, [])
             
             # The new token's index in the unpadded logical sequence
             token_idx = new_seq_len - 1
             logical_block_idx = token_idx // BLOCK_SIZE
             offset_in_block = token_idx % BLOCK_SIZE
+            if logical_block_idx >= len(blocks):
+                continue
             phys_block = blocks[logical_block_idx]
             
             for layer_idx in range(NUM_LAYERS):
