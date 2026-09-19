@@ -24,12 +24,13 @@ class RequestState:
     This keeps track of what the user asked, how much of the response has been
     generated so far, and the model's memory of this specific conversation.
     """
-    def __init__(self, request_id: str, prompt: str, prompt_len: int, response_queue: queue.Queue, tier: str = "free"):
+    def __init__(self, request_id: str, prompt: str, prompt_len: int, response_queue: queue.Queue, tier: str = "free", max_tokens: int = 100):
         self.request_id = request_id
         self.prompt = prompt
         self.prompt_len = prompt_len
         self.response_queue = response_queue
         self.tier = tier
+        self.max_tokens = max_tokens
         self.token_ids: List[int] = []
         self.finished = False
         self.tokens_produced = 0
@@ -81,21 +82,15 @@ class BatchEngine:
         if self.thread:
             self.thread.join()
 
-    def submit(self, prompt: str, tier: str = "free") -> tuple[str, queue.Queue]:
+    def submit(self, prompt: str, tier: str = "free", max_tokens: int = 100) -> tuple[str, queue.Queue]:
         """
-        Accepts a new user's question and queues it up to be answered by the model.
-        
-        Inputs:
-        - prompt: The text of the user's question.
-        - tier: The priority tier of the user (e.g., 'free' or 'premium').
-        
-        Returns:
-        - A unique ID for the request, and a communication channel (queue.Queue) where 
-          the model will drop the answer word-by-word as it thinks of them.
+        Takes a new question from a user and puts it in the waiting line.
+        Returns a unique ID for the request and a personal mailbox (queue) where
+        the words will be dropped as they are generated.
         """
-        req_id = f"req-{uuid.uuid4().hex[:8]}"
+        req_id = str(uuid.uuid4())
         resp_q = queue.Queue()
-        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q, "tier": tier})
+        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q, "tier": tier, "max_tokens": max_tokens})
         return req_id, resp_q
 
     def get_stats(self) -> dict:
@@ -111,8 +106,8 @@ class BatchEngine:
         try:
             with open("batch_events.jsonl", "a") as f:
                 f.write(json.dumps(event) + "\n")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Failed to log batch event: {e}")
 
     def _run_loop(self):
         """
@@ -147,11 +142,12 @@ class BatchEngine:
                 next_req = self.pending_queue.get()
                 
                 state = RequestState(
-                    next_req["id"], 
-                    next_req["prompt"], 
-                    prompt_len, 
-                    next_req["response_queue"], 
-                    next_req.get("tier", "free")
+                    request_id=next_req["id"],
+                    prompt=next_req["prompt"],
+                    prompt_len=prompt_len,
+                    response_queue=next_req["response_queue"],
+                    tier=next_req.get("tier", "free"),
+                    max_tokens=next_req.get("max_tokens", 100)
                 )
                 
                 # "Prefill" phase: The model reads the user's entire prompt all at once to build its initial memory.
@@ -228,17 +224,23 @@ class BatchEngine:
                 if token_str:
                     state.response_queue.put({"type": "token", "content": token_str})
                 
-                # Check if the model said "I'm done" (the eos token), or if the conversation is dragging on too long (limit 200).
-                if new_token.item() == self.tokenizer.eos_token_id or state.tokens_produced >= 200:
+                # Check if the model said "I'm done" (the eos token), or if the conversation is dragging on too long (limit max_tokens).
+                if new_token.item() == self.tokenizer.eos_token_id or state.tokens_produced >= state.max_tokens:
                     state.finished = True
                     state.response_queue.put({"type": "done"})
                     freed_this_step.append(state.request_id)
+                    # Free the sequence immediately when it finishes!
+                    self.kv_manager.free_sequence(state.request_id)
                     
+            # 4. Kick out anyone who finished their response, freeing up their slot for the next person in line.
+            # We do this before logging so the logs show the immediately freed blocks and updated live tokens.
+            active_slots = [s for s in active_slots if not s.finished]
+
             # 3. Log what just happened so we can track the system's performance.
             current_live_tokens = sum((s.prompt_len + s.tokens_produced) for s in active_slots)
             self._log_event({
                 "active_requests": [s.request_id for s in active_slots],
-                "tokens_processed": len(active_slots),
+                "tokens_processed": len(active_slots) + len(freed_this_step), # include those processed this step
                 "slots_freed": freed_this_step,
                 "requests_admitted": admitted_this_step,
                 "current_total_live_tokens": current_live_tokens
@@ -246,9 +248,3 @@ class BatchEngine:
             
             # Log fragmentation if needed (once per second)
             self.kv_manager.log_fragmentation_if_needed(active_slots, self._log_event)
-            
-            # 4. Kick out anyone who finished their response, freeing up their slot for the next person in line.
-            for s in active_slots:
-                if s.finished:
-                    self.kv_manager.free_sequence(s.request_id)
-            active_slots = [s for s in active_slots if not s.finished]

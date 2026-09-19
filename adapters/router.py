@@ -60,10 +60,11 @@ class EngineRouter:
     # ------------------------------------------------------------------
 
     async def route_request(
-        self, engine_name: str, prompt: str, tier: str = "free"
+        self, engine_name: str, prompt: str, tier: str = "free", max_tokens: int = 100
     ) -> AsyncIterator[str]:
         """
-        Generate tokens using the specified engine, with fallback.
+        Routes the request to the primary engine. If that engine fails,
+        attempts to failover to a designated fallback engine.
 
         Parameters
         ----------
@@ -72,6 +73,10 @@ class EngineRouter:
             "custom_runtime".
         prompt : str
             The user prompt to send to the engine.
+        tier : str
+            The tier of the request.
+        max_tokens : int
+            The maximum number of tokens to generate.
 
         Yields
         ------
@@ -93,7 +98,7 @@ class EngineRouter:
 
         # Step 3: Attempt generation on the primary engine.
         try:
-            async for token in adapter.generate(prompt, tier=tier):
+            async for token in adapter.generate(prompt, tier=tier, max_tokens=max_tokens):
                 yield token
             # If we get here the stream completed successfully.
             return

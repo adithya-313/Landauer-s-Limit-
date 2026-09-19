@@ -22,7 +22,7 @@ class BaseEngineAdapter(ABC):
     """
 
     @abstractmethod
-    async def generate(self, prompt: str, tier: str = "free") -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100) -> AsyncIterator[str]:
         """
         Stream generated tokens for the given prompt.
 

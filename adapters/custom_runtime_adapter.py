@@ -31,7 +31,7 @@ class CustomRuntimeAdapter:
     waits to catch the answer words one-by-one so it can send them back to the user.
     """
 
-    async def generate(self, prompt: str, tier: str = "free") -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100) -> AsyncIterator[str]:
         """
         Takes a single user's question, hands it to the background AI engine,
         and returns the answer piece by piece as a stream.
@@ -46,7 +46,7 @@ class CustomRuntimeAdapter:
         
         # We hand the question to the engine and get back a personal "mailbox" (resp_q).
         # The engine will drop the generated words into this mailbox as it thinks of them.
-        req_id, resp_q = engine.submit(prompt, tier=tier)
+        req_id, resp_q = engine.submit(prompt, tier=tier, max_tokens=max_tokens)
         
         while True:
             try:
