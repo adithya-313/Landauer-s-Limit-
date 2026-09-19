@@ -15,3 +15,9 @@ venv/
 
 queue_events.jsonl
 batch_events.jsonl
+test_4bit.py
+test_8bit.py
+test_cache_shape.py
+experiments/debug_cache.py
+experiments/debug_cache2.py
+experiments/list_hf_cache.py
