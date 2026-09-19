@@ -15,3 +15,11 @@ This folder contains snapshots of our log files and test outputs. We keep these 
 ### `stage3_forced_error_test_output.txt`
 **What it is:** The terminal output captured when we ran the forced error test (`test_stage3_error.py`). In this test, we temporarily wired the engine to crash whenever it saw the prompt `"crash_test"`.
 **What it proves:** It shows that if the engine fails while processing a specific request, it sends a clean error message back to *just that one person*, without bringing down the whole server. The other requests running at the exact same time ("What is 2+2?" and "What is 3+3?") finished successfully.
+
+### `stage4_block_reuse_and_fragmentation.jsonl`
+**What it is:** A snapshot of the live server log during the Phase 6c Custom Runtime Block Reuse test (`test_block_reuse.py`).
+**What it proves:** It proves that block reuse is immediate and not deferred to the end of the batch. When a short request finishes, its blocks are returned to the pool exactly at the step it completes, making them available for longer running requests.
+
+### `stage4_tier_eviction_and_exhaustion.jsonl`
+**What it is:** A snapshot of the live server log during the Phase 6c HTTP Tier Eviction test (`test_http_tier_eviction.py`) which simulated high memory pressure.
+**What it proves:** It proves that under heavy memory pressure, free-tier requests are correctly chosen for eviction to protect premium-tier requests, and that the physical fragmentation ratio is correctly logged and reported as non-zero.
