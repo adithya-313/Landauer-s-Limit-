@@ -9,7 +9,7 @@ async def send_request(prompt: str, delay: float = 0):
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
-                "http://127.0.0.1:8001/v1/chat/completions",
+                "http://127.0.0.1:8004/v1/chat/completions",
                 json={
                     "model": "test",
                     "messages": [{"role": "user", "content": prompt}],

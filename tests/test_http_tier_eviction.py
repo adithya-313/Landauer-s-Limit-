@@ -20,7 +20,7 @@ async def send_req(client, prompt, tier, engine):
         print(f"[{engine}] Failed: {e}")
 
 async def main():
-    async with httpx.AsyncClient(base_url="http://127.0.0.1:8003", timeout=300.0) as client:
+    async with httpx.AsyncClient(base_url="http://127.0.0.1:8004", timeout=300.0) as client:
         # Test vLLM (will likely fail with connection error, but shouldn't throw TypeError)
         print("Testing vLLM Adapter...")
         await send_req(client, "Hello vLLM", "free", "vllm_local")

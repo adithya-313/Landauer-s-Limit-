@@ -133,8 +133,9 @@ class KVCacheManager:
         # First, try to find a 'free' tier sequence, starting from the newest
         for state in reversed(active_slots):
             if state.request_id != current_req_id and getattr(state, 'tier', 'free') == 'free':
-                evicted_req = state
-                break
+                if not getattr(state, 'finished', False):
+                    evicted_req = state
+                    break
                 
         # If no 'free' sequence was found, fallback behavior depends on the requester's tier
         if not evicted_req:
@@ -142,8 +143,9 @@ class KVCacheManager:
                 # Premium can evict other premium requests if absolutely necessary
                 for state in reversed(active_slots):
                     if state.request_id != current_req_id:
-                        evicted_req = state
-                        break
+                        if not getattr(state, 'finished', False):
+                            evicted_req = state
+                            break
             else:
                 # Free tier CANNOT evict premium requests. It must fail its own admission.
                 current_state.finished = True
@@ -296,11 +298,14 @@ class KVCacheManager:
             # because we left-padded and generated 1 token.
             new_seq_len = state.prompt_len + state.tokens_produced + 1
             
+            if getattr(state, 'finished', False):
+                continue # Aborted due to OOM
+                
             # Ensure block exists for this new length
             self.ensure_allocation(state, new_seq_len, active_slots)
             
             if getattr(state, 'finished', False):
-                continue # Aborted due to OOM
+                continue # Aborted due to OOM during allocation
                 
             blocks = self.page_table.get(state.request_id, [])
             
