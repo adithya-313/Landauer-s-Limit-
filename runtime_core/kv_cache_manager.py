@@ -138,7 +138,7 @@ class KVCacheManager:
         evicted_req.finished = True
         evicted_req.response_queue.put({"type": "error", "content": "OOM: Evicted due to memory pressure"})
         
-        logger.warning(f"Evicted request {evicted_req.request_id} under memory pressure.")
+        logger.warning(f"Evicted request {evicted_req.request_id} (tier: {evicted_req.tier}) under memory pressure.")
 
     def ensure_allocation(self, request_id: str, logical_length: int, active_slots: List['RequestState']):
         """

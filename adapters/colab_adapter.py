@@ -54,7 +54,8 @@ class ColabAdapter:
     # Public API
     # ------------------------------------------------------------------
 
-    async def generate(self, prompt: str) -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free") -> AsyncIterator[str]:
+        # NOTE: This adapter does not currently use the tier parameter; it exists only to satisfy the shared BaseEngineAdapter contract.
         """
         Stream a completion from the Colab T4 instance.
 

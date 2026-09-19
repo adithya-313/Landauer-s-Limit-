@@ -22,9 +22,21 @@ class BaseEngineAdapter(ABC):
     """
 
     @abstractmethod
-    async def generate(self, prompt: str) -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free") -> AsyncIterator[str]:
         """
         Stream generated tokens for the given prompt.
+
+        Parameters
+        ----------
+        prompt : str
+            The user prompt to generate tokens for.
+        tier : str
+            The requester's service tier (e.g. "free" or "premium").
+            Used by engines that implement tier-aware behavior (e.g. custom_runtime
+            for priority eviction). Most adapters (vLLM, llama.cpp, etc.) do not 
+            implement tier-aware logic natively and will ignore this parameter. 
+            The default exists so adapters that don't use tier-based logic remain 
+            unaffected and don't need special-case handling in the router.
 
         Yields
         ------

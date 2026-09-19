@@ -31,7 +31,7 @@ class CustomRuntimeAdapter:
     waits to catch the answer words one-by-one so it can send them back to the user.
     """
 
-    async def generate(self, prompt: str) -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free") -> AsyncIterator[str]:
         """
         Takes a single user's question, hands it to the background AI engine,
         and returns the answer piece by piece as a stream.
@@ -46,7 +46,7 @@ class CustomRuntimeAdapter:
         
         # We hand the question to the engine and get back a personal "mailbox" (resp_q).
         # The engine will drop the generated words into this mailbox as it thinks of them.
-        req_id, resp_q = engine.submit(prompt)
+        req_id, resp_q = engine.submit(prompt, tier=tier)
         
         while True:
             try:
@@ -63,7 +63,7 @@ class CustomRuntimeAdapter:
                 elif msg["type"] == "token":
                     yield msg["content"] # Hand the newly generated word back to the web server.
                 elif msg["type"] == "error":
-                    raise RuntimeError(msg["error"]) # Something went wrong inside the engine.
+                    raise RuntimeError(msg.get("error", msg.get("content", "Unknown error"))) # Something went wrong inside the engine.
                     
             except queue.Empty:
                 # The assistant checked the mailbox but the engine hasn't generated the next word yet.

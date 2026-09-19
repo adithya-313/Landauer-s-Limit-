@@ -309,7 +309,7 @@ async def _handle_request(item):
     try:
         # Ask the router to find the right AI engine to answer this specific question.
         # As the engine generates words one-by-one, we loop over them here.
-        async for token in _router.route_request(item.engine, item.prompt):
+        async for token in _router.route_request(item.engine, item.prompt, item.tier):
             # Drop the new word into the user's personal mailbox so the web server can send it to them.
             await item.response_queue.put({"type": "token", "content": token})
             
