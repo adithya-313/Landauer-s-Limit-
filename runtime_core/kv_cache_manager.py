@@ -45,7 +45,9 @@ import json
 import subprocess
 from typing import List, Dict, Tuple, Optional
 import dataclasses
+from collections import OrderedDict
 from transformers.cache_utils import DynamicCache, DynamicLayer
+from runtime_core.prefix_hashing import compute_block_hashes, GENESIS_PARENT_HASH
 import logging
 
 @dataclasses.dataclass
@@ -65,6 +67,10 @@ NUM_LAYERS = 28
 NUM_KV_HEADS = 2
 HEAD_DIM = 128
 
+# Kill-switch - if anything about prefix caching misbehaves, flip this to False 
+# to restore exact pre-6d-3 behavior with zero other code changes needed.
+PREFIX_CACHE_ENABLED = True
+
 
 class KVCacheManager:
     def __init__(self, device: torch.device, max_blocks: int = 2000, dtype=torch.bfloat16):
@@ -82,6 +88,11 @@ class KVCacheManager:
         # self.free_blocks/self.page_table reference physical block ids.
         self.block_info: List[BlockInfo] = [BlockInfo() for _ in range(max_blocks)]
         self._clock: int = 0
+        
+        # Three-state model: plain-free (free_blocks) -> cached-free (cached_free, still remembers content) -> in-use (ref_count > 0)
+        self.cached_free: OrderedDict[int, None] = OrderedDict()
+        self.hash_registry: dict[str, int] = {}
+        self.prefix_cache_enabled: bool = PREFIX_CACHE_ENABLED
         
         # Page table mapping: request_id -> List[physical_block_id]
         self.page_table: Dict[str, List[int]] = {}
@@ -113,27 +124,51 @@ class KVCacheManager:
         except Exception:
             pass
 
+    def _hand_out_block(self) -> Optional[int]:
+        if self.free_blocks:
+            return self.free_blocks.pop(0)
+        elif self.cached_free:
+            # OrderedDict is insertion-ordered, so popitem(last=False) returns the oldest entry
+            block_id, _ = self.cached_free.popitem(last=False)
+            
+            # we're about to reuse/overwrite this block's memory,
+            # so its old identity is no longer valid — must delete here, not later, or a future
+            # lookup would falsely match content that's been evicted
+            block_hash = self.block_info[block_id].block_hash
+            if block_hash and block_hash in self.hash_registry and self.hash_registry[block_hash] == block_id:
+                del self.hash_registry[block_hash]
+            
+            # clear the BlockInfo hash fields so it doesn't accidentally look like a registered block
+            self.block_info[block_id].block_hash = None
+            self.block_info[block_id].parent_hash = None
+            self.block_info[block_id].token_ids = None
+            
+            return block_id
+        else:
+            return None
+
     def _allocate_block(self, active_slots: List['RequestState'], current_state: 'RequestState') -> Optional[int]:
         """
         Pulls a free physical block from the pool.
         If empty, evicts the most recently admitted sequence (LIFO) to free space,
         protecting older sequences that have been running longer.
         """
-        if not self.free_blocks:
+        phys_block = self._hand_out_block()
+        if phys_block is None:
             success = self._evict_sequence(active_slots, current_state)
             if not success:
                 return None
-            if not self.free_blocks:
+            phys_block = self._hand_out_block()
+            if phys_block is None:
                 raise RuntimeError("Failed to allocate block even after eviction attempt.")
             
-        block_id = self.free_blocks.pop(0)
         self._clock += 1
         # This is the single point where a block transitions from plain-free to in-use,
         # so ref_count starts at exactly 1 here (the one owner that just received it) 
         # - not 0, not incremented from some prior value.
-        self.block_info[block_id].ref_count = 1
-        self.block_info[block_id].last_used = self._clock
-        return block_id
+        self.block_info[phys_block].ref_count = 1
+        self.block_info[phys_block].last_used = self._clock
+        return phys_block
 
     def _evict_sequence(self, active_slots: List['RequestState'], current_state: 'RequestState') -> bool:
         """
@@ -156,8 +191,11 @@ class KVCacheManager:
         for state in reversed(active_slots):
             if state.request_id != current_req_id and getattr(state, 'tier', 'free') == 'free':
                 if not getattr(state, 'finished', False):
-                    evicted_req = state
-                    break
+                    # evicting an all-shared sequence frees zero physical blocks, so it's
+                    # pointless and must be skipped in favor of a real victim.
+                    if any(self.block_info[bid].ref_count == 1 for bid in self.page_table.get(state.request_id, [])):
+                        evicted_req = state
+                        break
                 
         # If no 'free' sequence was found, fallback behavior depends on the requester's tier
         if not evicted_req:
@@ -166,8 +204,11 @@ class KVCacheManager:
                 for state in reversed(active_slots):
                     if state.request_id != current_req_id:
                         if not getattr(state, 'finished', False):
-                            evicted_req = state
-                            break
+                            # evicting an all-shared sequence frees zero physical blocks, so it's
+                            # pointless and must be skipped in favor of a real victim.
+                            if any(self.block_info[bid].ref_count == 1 for bid in self.page_table.get(state.request_id, [])):
+                                evicted_req = state
+                                break
             else:
                 # Free tier CANNOT evict premium requests. It must fail its own admission.
                 current_state.finished = True
@@ -231,7 +272,12 @@ class KVCacheManager:
         for block_id in blocks:
             self.block_info[block_id].ref_count -= 1
             if self.block_info[block_id].ref_count == 0:
-                self.free_blocks.append(block_id)
+                if self.block_info[block_id].block_hash is not None:
+                    # this makes the block "cached-free" rather than "plain-free" — it still remembers 
+                    # its content in case something needs it again
+                    self.cached_free[block_id] = None
+                else:
+                    self.free_blocks.append(block_id)
             elif self.block_info[block_id].ref_count < 0:
                 # This should be structurally impossible and indicates a bug elsewhere if it ever fires.
                 raise RuntimeError(f"Negative ref_count {self.block_info[block_id].ref_count} for block {block_id} (request {request_id})")
@@ -396,7 +442,10 @@ class KVCacheManager:
             "free_blocks": len(self.free_blocks),
             "fragmentation_ratio": fragmentation_ratio,
             "total_allocated_tokens": total_allocated_tokens,
-            "used_tokens": used_tokens
+            "used_tokens": used_tokens,
+            "cached_free_blocks": len(self.cached_free),
+            "hashed_blocks": sum(1 for bi in self.block_info if bi.block_hash is not None),
+            "shared_blocks": sum(1 for bi in self.block_info if bi.ref_count >= 2)
         })
 
     def check_invariants(self) -> list[str]:
@@ -425,7 +474,115 @@ class KVCacheManager:
         free_set = set(self.free_blocks)
         for bid in actual_page_table_counts.keys():
             if bid in free_set:
-                errors.append(f"block {bid} appears in both free_blocks and page_table")
+                errors.append(f"block {bid} has ref_count {info.ref_count} but is not in page_table")
                 
         return errors
 
+    def register_prompt_blocks(self, request_id: str, token_ids: list[int]) -> int:
+        if not self.prefix_cache_enabled:
+            return 0
+            
+        hashes = compute_block_hashes(token_ids)
+        newly_hashed = 0
+        blocks = self.page_table.get(request_id, [])
+        
+        for block_idx, hash_hex in hashes:
+            if block_idx >= len(blocks):
+                continue
+            phys_block = blocks[block_idx]
+            if self.block_info[phys_block].block_hash is not None:
+                continue # never overwrite
+                
+            # If a collision with a different existing block happens, skip registering this one
+            # rather than overwriting. This is a rare-but-possible edge case.
+            if hash_hex in self.hash_registry and self.hash_registry[hash_hex] != phys_block:
+                continue
+                
+            self.block_info[phys_block].block_hash = hash_hex
+            if block_idx > 0:
+                self.block_info[phys_block].parent_hash = hashes[block_idx - 1][1]
+            else:
+                self.block_info[phys_block].parent_hash = GENESIS_PARENT_HASH.hex()
+            
+            start_idx = block_idx * BLOCK_SIZE
+            end_idx = min(start_idx + BLOCK_SIZE, len(token_ids))
+            self.block_info[phys_block].token_ids = tuple(token_ids[start_idx:end_idx])
+            
+            self.hash_registry[hash_hex] = phys_block
+            newly_hashed += 1
+            
+        return newly_hashed
+
+    def acquire_prefix(self, request_id: str, token_ids: list[int]) -> int:
+        # this method is only for NEW sequences, never for one already admitted
+        if request_id in self.page_table:
+            raise RuntimeError(f"Cannot acquire prefix for request_id {request_id} that is already admitted")
+            
+        if not self.prefix_cache_enabled:
+            return 0
+            
+        hashes = compute_block_hashes(token_ids)
+        hits = 0
+        hit_blocks = []
+        
+        for block_idx, hash_hex in hashes:
+            if hash_hex not in self.hash_registry:
+                break # this and all later blocks are misses
+                
+            phys_block = self.hash_registry[hash_hex]
+            
+            start_idx = block_idx * BLOCK_SIZE
+            end_idx = min(start_idx + BLOCK_SIZE, len(token_ids))
+            expected_token_ids = tuple(token_ids[start_idx:end_idx])
+            expected_parent_hash = hashes[block_idx - 1][1] if block_idx > 0 else GENESIS_PARENT_HASH.hex()
+            
+            if self.block_info[phys_block].token_ids != expected_token_ids or self.block_info[phys_block].parent_hash != expected_parent_hash:
+                break
+                
+            self.block_info[phys_block].ref_count += 1
+            self._clock += 1
+            self.block_info[phys_block].last_used = self._clock
+            
+            if phys_block in self.cached_free:
+                # it's no longer just sitting in reserve, it's actively in use again
+                del self.cached_free[phys_block]
+                
+            hit_blocks.append(phys_block)
+            hits += 1
+            
+        if hit_blocks:
+            page_list = self.page_table.setdefault(request_id, [])
+            for pb in reversed(hit_blocks):
+                page_list.insert(0, pb)
+                
+        return hits
+
+    def build_prefix_cache(self, block_ids: list[int]) -> DynamicCache:
+        combined = DynamicCache()
+        if not block_ids:
+            return combined
+            
+        seq_len = len(block_ids) * BLOCK_SIZE
+        
+        for layer_idx in range(NUM_LAYERS):
+            layer_keys = torch.zeros((1, NUM_KV_HEADS, seq_len, HEAD_DIM), dtype=self.dtype, device=self.device)
+            layer_vals = torch.zeros((1, NUM_KV_HEADS, seq_len, HEAD_DIM), dtype=self.dtype, device=self.device)
+            
+            for logical_block_idx, phys_block in enumerate(block_ids):
+                start_idx = logical_block_idx * BLOCK_SIZE
+                end_idx = start_idx + BLOCK_SIZE # Prefix blocks are always complete
+                
+                layer_keys[0, :, start_idx:end_idx, :] = self.physical_keys[phys_block, layer_idx, :, :BLOCK_SIZE, :]
+                layer_vals[0, :, start_idx:end_idx, :] = self.physical_values[phys_block, layer_idx, :, :BLOCK_SIZE, :]
+                
+            if hasattr(combined, 'layers'):
+                layer = DynamicLayer()
+                layer.keys = layer_keys
+                layer.values = layer_vals
+                layer.is_initialized = True
+                combined.layers.append(layer)
+            else:
+                combined.key_cache.append(layer_keys)
+                combined.value_cache.append(layer_vals)
+                
+        return combined
