@@ -44,8 +44,18 @@ import time
 import json
 import subprocess
 from typing import List, Dict, Tuple, Optional
+import dataclasses
 from transformers.cache_utils import DynamicCache, DynamicLayer
 import logging
+
+@dataclasses.dataclass
+class BlockInfo:
+    ref_count: int = 0
+    block_hash: str | None = None
+    parent_hash: str | None = None
+    token_ids: tuple[int, ...] | None = None
+    last_used: int = 0  # logical clock tick when this block was last touched
+
 
 logger = logging.getLogger("KVCacheManager")
 
@@ -67,6 +77,11 @@ class KVCacheManager:
         
         # Free physical block pool
         self.free_blocks: List[int] = list(range(max_blocks))
+        
+        # One BlockInfo per physical block, indexed the same way 
+        # self.free_blocks/self.page_table reference physical block ids.
+        self.block_info: List[BlockInfo] = [BlockInfo() for _ in range(max_blocks)]
+        self._clock: int = 0
         
         # Page table mapping: request_id -> List[physical_block_id]
         self.page_table: Dict[str, List[int]] = {}
@@ -111,7 +126,14 @@ class KVCacheManager:
             if not self.free_blocks:
                 raise RuntimeError("Failed to allocate block even after eviction attempt.")
             
-        return self.free_blocks.pop(0)
+        block_id = self.free_blocks.pop(0)
+        self._clock += 1
+        # This is the single point where a block transitions from plain-free to in-use,
+        # so ref_count starts at exactly 1 here (the one owner that just received it) 
+        # - not 0, not incremented from some prior value.
+        self.block_info[block_id].ref_count = 1
+        self.block_info[block_id].last_used = self._clock
+        return block_id
 
     def _evict_sequence(self, active_slots: List['RequestState'], current_state: 'RequestState') -> bool:
         """
@@ -198,11 +220,21 @@ class KVCacheManager:
 
     def free_sequence(self, request_id: str):
         """
-        Returns a sequence's blocks to the free pool immediately.
+        Returns a sequence's blocks to the free pool.
+        If request_id not in self.page_table, this is a no-op (covers double-free).
+        This is intentional, since phase 6d-3 sharing will make repeated frees of overlapping sequences normal.
         """
-        if request_id in self.page_table:
-            blocks = self.page_table.pop(request_id)
-            self.free_blocks.extend(blocks)
+        if request_id not in self.page_table:
+            return
+            
+        blocks = self.page_table.pop(request_id)
+        for block_id in blocks:
+            self.block_info[block_id].ref_count -= 1
+            if self.block_info[block_id].ref_count == 0:
+                self.free_blocks.append(block_id)
+            elif self.block_info[block_id].ref_count < 0:
+                # This should be structurally impossible and indicates a bug elsewhere if it ever fires.
+                raise RuntimeError(f"Negative ref_count {self.block_info[block_id].ref_count} for block {block_id} (request {request_id})")
 
     def ingest_prefill(self, state: 'RequestState', cache: DynamicCache, active_slots: List['RequestState']):
         """
@@ -340,14 +372,16 @@ class KVCacheManager:
             
         self.last_log_time = current_time
         
-        total_allocated_tokens = 0
         used_tokens = 0
+        unique_blocks = set()
         
         for state in active_slots:
             seq_len = state.prompt_len + state.tokens_produced
-            blocks = self.page_table.get(state.request_id, [])
-            total_allocated_tokens += len(blocks) * BLOCK_SIZE
             used_tokens += seq_len
+            blocks = self.page_table.get(state.request_id, [])
+            unique_blocks.update(blocks)
+            
+        total_allocated_tokens = len(unique_blocks) * BLOCK_SIZE
             
         if total_allocated_tokens > 0:
             fragmentation_ratio = (total_allocated_tokens - used_tokens) / total_allocated_tokens
@@ -364,3 +398,34 @@ class KVCacheManager:
             "total_allocated_tokens": total_allocated_tokens,
             "used_tokens": used_tokens
         })
+
+    def check_invariants(self) -> list[str]:
+        """
+        Verifies internal block state consistency.
+        Returns [] if healthy, otherwise a list of human-readable problem descriptions.
+        """
+        errors = []
+        
+        in_use_count = sum(1 for b in self.block_info if b.ref_count > 0)
+        free_count = len(self.free_blocks)
+        
+        if free_count + in_use_count != self.max_blocks:
+            errors.append(f"Block count mismatch: {free_count} free + {in_use_count} in-use != {self.max_blocks} max")
+            
+        actual_page_table_counts = {}
+        for request_id, blocks in self.page_table.items():
+            for bid in blocks:
+                actual_page_table_counts[bid] = actual_page_table_counts.get(bid, 0) + 1
+                
+        for bid, actual_count in actual_page_table_counts.items():
+            expected_count = self.block_info[bid].ref_count
+            if actual_count != expected_count:
+                errors.append(f"block {bid} has ref_count {expected_count} but appears {actual_count} times in page tables")
+                
+        free_set = set(self.free_blocks)
+        for bid in actual_page_table_counts.keys():
+            if bid in free_set:
+                errors.append(f"block {bid} appears in both free_blocks and page_table")
+                
+        return errors
+
