@@ -23,6 +23,7 @@ class QueueItem:
     tier: str = dataclasses.field(compare=False)
     response_queue: asyncio.Queue = dataclasses.field(compare=False)
     max_tokens: int = dataclasses.field(compare=False, default=100)
+    messages: list[dict] = dataclasses.field(compare=False, default_factory=list)
 
 class RequestQueue:
     """
@@ -55,7 +56,7 @@ class RequestQueue:
         except Exception as e:
             logger.error("Failed to log queue event: %s", e)
 
-    async def enqueue(self, engine: str, prompt: str, tier: str, max_tokens: int, response_queue: asyncio.Queue) -> str:
+    async def enqueue(self, engine: str, prompt: str, tier: str, max_tokens: int, response_queue: asyncio.Queue, messages: list[dict] = None) -> str:
         """
         Add a request to the queue. Returns request_id.
         NOTE: request_id is strictly for log correlation, NOT for idempotency or deduplication.
@@ -76,7 +77,8 @@ class RequestQueue:
             prompt=prompt,
             tier=tier,
             max_tokens=max_tokens,
-            response_queue=response_queue
+            response_queue=response_queue,
+            messages=messages or []
         )
         
         await self.queue.put(item)

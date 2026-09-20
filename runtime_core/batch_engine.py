@@ -17,6 +17,10 @@ from .kv_cache_manager import KVCacheManager
 MAX_SLOTS = 4
 # TOKEN_BUDGET: Maximum combined sum of active tokens (prompt + generated) allowed in a batch.
 TOKEN_BUDGET = 10000
+# USE_CHAT_TEMPLATE: when True, build the prompt from the full messages list
+# using the tokenizer's chat template. When False, use the old raw-string
+# prompt path unchanged. This lets us fall back instantly if something breaks.
+USE_CHAT_TEMPLATE = True
 
 class RequestState:
     """
@@ -82,7 +86,7 @@ class BatchEngine:
         if self.thread:
             self.thread.join()
 
-    def submit(self, prompt: str, tier: str = "free", max_tokens: int = 100) -> tuple[str, queue.Queue]:
+    def submit(self, prompt: str, tier: str = "free", max_tokens: int = 100, messages: list[dict] = None) -> tuple[str, queue.Queue]:
         """
         Takes a new question from a user and puts it in the waiting line.
         Returns a unique ID for the request and a personal mailbox (queue) where
@@ -90,7 +94,7 @@ class BatchEngine:
         """
         req_id = str(uuid.uuid4())
         resp_q = queue.Queue()
-        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q, "tier": tier, "max_tokens": max_tokens})
+        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q, "tier": tier, "max_tokens": max_tokens, "messages": messages or []})
         return req_id, resp_q
 
     def get_stats(self) -> dict:
@@ -126,8 +130,12 @@ class BatchEngine:
                 next_req = self.pending_queue.queue[0]
                 
                 # We need to make sure admitting this new person won't crash the computer by using too much memory.
-                inputs = self.tokenizer(next_req["prompt"], return_tensors="pt").to(self.device)
-                prompt_len = inputs.input_ids.shape[1]
+                if USE_CHAT_TEMPLATE and next_req.get("messages"):
+                    inputs = self.tokenizer.apply_chat_template(next_req["messages"], tokenize=True, add_generation_prompt=True, return_tensors="pt", return_dict=True).to(self.device)
+                    prompt_len = inputs.input_ids.shape[1]
+                else:
+                    inputs = self.tokenizer(next_req["prompt"], return_tensors="pt").to(self.device)
+                    prompt_len = inputs.input_ids.shape[1]
                 
                 # DECISION: TOKEN_BUDGET admission check was deliberately kept token-based. 
                 # While a block-count-based check would reflect the allocator's true state, 

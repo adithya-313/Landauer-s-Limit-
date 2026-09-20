@@ -60,7 +60,7 @@ class EngineRouter:
     # ------------------------------------------------------------------
 
     async def route_request(
-        self, engine_name: str, prompt: str, tier: str = "free", max_tokens: int = 100
+        self, engine_name: str, prompt: str, tier: str = "free", max_tokens: int = 100, messages: list[dict] = None
     ) -> AsyncIterator[str]:
         """
         Routes the request to the primary engine. If that engine fails,
@@ -98,7 +98,7 @@ class EngineRouter:
 
         # Step 3: Attempt generation on the primary engine.
         try:
-            async for token in adapter.generate(prompt, tier=tier, max_tokens=max_tokens):
+            async for token in adapter.generate(prompt, tier=tier, max_tokens=max_tokens, messages=messages):
                 yield token
             # If we get here the stream completed successfully.
             return
@@ -123,7 +123,7 @@ class EngineRouter:
             "Falling back from '%s' to '%s'.",
             engine_name, fallback_name,
         )
-        async for token in fallback_adapter.generate(prompt, tier=tier):
+        async for token in fallback_adapter.generate(prompt, tier=tier, messages=messages):
             yield token
 
     async def health_check(self, engine_name: str = "vllm_local") -> dict:

@@ -29,6 +29,9 @@ import asyncio
 import json
 import logging
 import time
+import os
+from typing import AsyncIterator, List, Optional
+import time
 import uuid
 from typing import List, Optional, Literal, AsyncIterator
 
@@ -309,7 +312,7 @@ async def _handle_request(item):
     try:
         # Ask the router to find the right AI engine to answer this specific question.
         # As the engine generates words one-by-one, we loop over them here.
-        async for token in _router.route_request(item.engine, item.prompt, item.tier, item.max_tokens):
+        async for token in _router.route_request(item.engine, item.prompt, item.tier, item.max_tokens, getattr(item, "messages", None)):
             # Drop the new word into the user's personal mailbox so the web server can send it to them.
             await item.response_queue.put({"type": "token", "content": token})
             
@@ -385,10 +388,17 @@ async def create_chat_completion(
     ]
 
     last_user_message = ""
+    has_system = False
     for msg in reversed(messages_dicts):
         if msg["role"] == "user" and not last_user_message:
             last_user_message = msg["content"]
-            break
+        if msg["role"] == "system":
+            has_system = True
+
+    if not has_system:
+        system_prompt = os.environ.get("SYSTEM_PROMPT", "")
+        if system_prompt:
+            messages_dicts.insert(0, {"role": "system", "content": system_prompt})
 
     if not last_user_message:
         return JSONResponse(
@@ -460,7 +470,8 @@ async def create_chat_completion(
             prompt=last_user_message,
             tier=request_body.tier,
             max_tokens=request_body.max_tokens,
-            response_queue=response_queue
+            response_queue=response_queue,
+            messages=messages_dicts
         )
     except RuntimeError as e:
         # The queue is full, gracefully reject the request immediately rather than blocking
