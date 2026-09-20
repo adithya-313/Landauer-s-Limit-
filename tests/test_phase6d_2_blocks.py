@@ -1,6 +1,7 @@
 import sys
 import torch
 import dataclasses
+import queue
 from runtime_core.kv_cache_manager import KVCacheManager
 
 @dataclasses.dataclass
@@ -9,6 +10,8 @@ class MockState:
     prompt_len: int = 16
     tokens_produced: int = 0
     tier: str = "free"
+    finished: bool = False
+    response_queue: queue.Queue = dataclasses.field(default_factory=queue.Queue)
 
 def run_tests():
     total_cases = 0
