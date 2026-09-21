@@ -292,7 +292,8 @@ class KVCacheManager:
         else:
             seq_len = cache.key_cache[0].shape[2]
             
-        self.ensure_allocation(state, logical_offset * BLOCK_SIZE + seq_len, active_slots)
+        # The cache is the FULL sequence length (prefix + suffix).
+        self.ensure_allocation(state, seq_len, active_slots)
         
         if getattr(state, 'finished', False):
             return # Aborted due to OOM
@@ -309,22 +310,18 @@ class KVCacheManager:
                 keys = cache.key_cache[layer_idx][0]
                 vals = cache.value_cache[layer_idx][0]
                 
-            num_suffix_blocks = (seq_len + BLOCK_SIZE - 1) // BLOCK_SIZE
-            for relative_block_idx in range(num_suffix_blocks):
-                logical_block_idx = logical_offset + relative_block_idx
+            num_total_blocks = (seq_len + BLOCK_SIZE - 1) // BLOCK_SIZE
+            # logical_offset tells us to skip the first N blocks because they are already shared
+            for logical_block_idx in range(logical_offset, num_total_blocks):
                 if logical_block_idx >= len(blocks):
                     continue
                 phys_block = blocks[logical_block_idx]
                 
-                # start_idx/end_idx refer to positions WITHIN the given cache tensor (the suffix)
-                start_idx = relative_block_idx * BLOCK_SIZE
+                start_idx = logical_block_idx * BLOCK_SIZE
                 end_idx = min(start_idx + BLOCK_SIZE, seq_len)
                 slice_len = end_idx - start_idx
                 
                 # Copy into physical storage.
-                # logical_offset shifts WHERE IN THE PAGE TABLE we write, but does
-                # NOT shift where we read from inside the incoming keys/vals tensor, since that tensor
-                # is already just the suffix.
                 self.physical_keys[phys_block, layer_idx, :, :slice_len, :] = keys[:, start_idx:end_idx, :]
                 self.physical_values[phys_block, layer_idx, :, :slice_len, :] = vals[:, start_idx:end_idx, :]
 
@@ -361,8 +358,15 @@ class KVCacheManager:
                     target_start = pad_len + start_idx
                     target_end = target_start + slice_len
                     
-                    layer_keys[batch_idx, :, target_start:target_end, :] = self.physical_keys[phys_block, layer_idx, :, :slice_len, :]
-                    layer_vals[batch_idx, :, target_start:target_end, :] = self.physical_values[phys_block, layer_idx, :, :slice_len, :]
+                    try:
+                        layer_keys[batch_idx, :, target_start:target_end, :] = self.physical_keys[phys_block, layer_idx, :, :slice_len, :]
+                        layer_vals[batch_idx, :, target_start:target_end, :] = self.physical_values[phys_block, layer_idx, :, :slice_len, :]
+                    except Exception as e:
+                        print(f"ERROR in reconstruct: max_len={max_len}, seq_len={seq_len}, pad_len={pad_len}")
+                        print(f"logical_block={logical_block_idx}, phys_block={phys_block}, blocks_len={len(blocks)}")
+                        print(f"start_idx={start_idx}, end_idx={end_idx}, slice_len={slice_len}, target_start={target_start}, target_end={target_end}")
+                        print(f"req_id={state.request_id}, prompt_len={state.prompt_len}, tokens_produced={state.tokens_produced}")
+                        raise e
                     
             if hasattr(combined, 'layers'):
                 layer = DynamicLayer()
@@ -399,6 +403,15 @@ class KVCacheManager:
             
             # The new token's index in the unpadded logical sequence
             token_idx = new_seq_len - 1
+            
+            # WRITE-GUARD: shared/cached prefix blocks are always PROMPT blocks (indices
+            # 0 through max_shareable_blocks-1 of a sequence). Decode always writes to
+            # token_idx = prompt_len + tokens_produced, whose block index is always
+            # strictly greater than the highest shareable prefix block index for any
+            # positive prompt_len (verified: highest shareable index is
+            # ((prompt_len-1)//BLOCK_SIZE)-1, while the first generated token's block index
+            # is prompt_len//BLOCK_SIZE, which is always greater). Decode can therefore
+            # never write into a block another request might still be sharing.
             logical_block_idx = token_idx // BLOCK_SIZE
             offset_in_block = token_idx % BLOCK_SIZE
             if logical_block_idx >= len(blocks):

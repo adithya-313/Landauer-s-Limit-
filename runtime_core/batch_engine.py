@@ -6,8 +6,12 @@ import time
 import uuid
 import threading
 import queue
+import logging
 from typing import List, Dict, Optional, Any
 from .kv_cache_manager import KVCacheManager
+from .prefix_hashing import BLOCK_SIZE
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
 # CONFIGURATION
@@ -123,6 +127,7 @@ class BatchEngine:
         
         while self.running:
             admitted_this_step = []
+            prefix_stats_this_step = []
             
             # 1. Slot Admission: Check if we have room to take on new users' questions.
             while len(active_slots) < MAX_SLOTS and not self.pending_queue.empty():
@@ -158,17 +163,53 @@ class BatchEngine:
                     max_tokens=next_req.get("max_tokens", 100)
                 )
                 
-                # "Prefill" phase: The model reads the user's entire prompt all at once to build its initial memory.
-                cache = DynamicCache()
-                with torch.no_grad():
-                    outputs = self.model(**inputs, past_key_values=cache)
+                prefix_hit = False
+                prefix_blocks_reused = 0
+                prefix_tokens_saved = 0
                 
-                # Immediately ingest the prefill cache into the block allocator
-                self.kv_manager.ingest_prefill(state, outputs.past_key_values, active_slots)
+                token_ids_as_list = inputs.input_ids[0].tolist()
+                
+                try:
+                    hit_blocks_count = self.kv_manager.acquire_prefix(state.request_id, token_ids_as_list)
+                    if hit_blocks_count > 0:
+                        prefix_block_ids = self.kv_manager.page_table[state.request_id][:hit_blocks_count]
+                        prefix_cache = self.kv_manager.build_prefix_cache(prefix_block_ids)
+                        suffix_token_ids = token_ids_as_list[hit_blocks_count * BLOCK_SIZE:]
+                        suffix_inputs = torch.tensor([suffix_token_ids], device=self.device)
+                        with torch.no_grad():
+                            outputs = self.model(input_ids=suffix_inputs, past_key_values=prefix_cache)
+                        self.kv_manager.ingest_prefill(state, outputs.past_key_values, active_slots,
+                                                       logical_offset=hit_blocks_count)
+                        prefix_hit = True
+                        prefix_blocks_reused = hit_blocks_count
+                        prefix_tokens_saved = hit_blocks_count * BLOCK_SIZE
+                    else:
+                        raise RuntimeError("no hits, use cold path")
+                except Exception as e:
+                    # Graceful fallback: if anything about the prefix cache hit path fails for
+                    # ANY reason (bad state, shape mismatch, whatever), we fall back to the
+                    # exact same cold prefill the engine has always done. A caching optimization
+                    # must never be allowed to break a real request.
+                    if str(e) != "no hits, use cold path":
+                        logger.warning("Prefix cache hit path failed or unavailable for %s: %s",
+                                       state.request_id, e)
+                    cache = DynamicCache()
+                    with torch.no_grad():
+                        outputs = self.model(**inputs, past_key_values=cache)
+                    self.kv_manager.ingest_prefill(state, outputs.past_key_values, active_slots)
+                    prefix_hit = False
+                    prefix_blocks_reused = 0
+                    prefix_tokens_saved = 0
+                
                 state.latest_token = outputs.logits[0, -1].argmax().unsqueeze(0)
                 state.token_ids.append(state.latest_token.item())
                 state.tokens_produced += 1
                 state.slot_index = len(active_slots)
+                
+                # This registers the FULL prompt's blocks (including any that were
+                # just reused as hits) so this request's content becomes available for a FUTURE
+                # request to hit against — this is what keeps the cache useful over time.
+                self.kv_manager.register_prompt_blocks(state.request_id, token_ids_as_list)
                 
                 # Send the very first word back to the user immediately so they know we started.
                 first_token = self.tokenizer.decode([state.latest_token.item()], skip_special_tokens=True)
@@ -177,6 +218,12 @@ class BatchEngine:
                 
                 active_slots.append(state)
                 admitted_this_step.append(state.request_id)
+                prefix_stats_this_step.append({
+                    "request_id": state.request_id,
+                    "prefix_hit": prefix_hit,
+                    "prefix_blocks_reused": prefix_blocks_reused,
+                    "prefix_tokens_saved": prefix_tokens_saved,
+                })
                 
             # If no one is asking questions right now, take a brief nap so we don't overwork the computer.
             if not active_slots:
@@ -251,7 +298,8 @@ class BatchEngine:
                 "tokens_processed": len(active_slots) + len(freed_this_step), # include those processed this step
                 "slots_freed": freed_this_step,
                 "requests_admitted": admitted_this_step,
-                "current_total_live_tokens": current_live_tokens
+                "current_total_live_tokens": current_live_tokens,
+                "prefix_stats": prefix_stats_this_step
             })
             
             # Log fragmentation if needed (once per second)
