@@ -282,7 +282,7 @@ class KVCacheManager:
                 # This should be structurally impossible and indicates a bug elsewhere if it ever fires.
                 raise RuntimeError(f"Negative ref_count {self.block_info[block_id].ref_count} for block {block_id} (request {request_id})")
 
-    def ingest_prefill(self, state: 'RequestState', cache: DynamicCache, active_slots: List['RequestState']):
+    def ingest_prefill(self, state: 'RequestState', cache: DynamicCache, active_slots: List['RequestState'], logical_offset: int = 0):
         """
         Takes a contiguous cache from a prefill forward pass and writes it into the block allocator.
         """
@@ -292,7 +292,7 @@ class KVCacheManager:
         else:
             seq_len = cache.key_cache[0].shape[2]
             
-        self.ensure_allocation(state, seq_len, active_slots)
+        self.ensure_allocation(state, logical_offset * BLOCK_SIZE + seq_len, active_slots)
         
         if getattr(state, 'finished', False):
             return # Aborted due to OOM
@@ -309,12 +309,22 @@ class KVCacheManager:
                 keys = cache.key_cache[layer_idx][0]
                 vals = cache.value_cache[layer_idx][0]
                 
-            for logical_block_idx, phys_block in enumerate(blocks):
-                start_idx = logical_block_idx * BLOCK_SIZE
+            num_suffix_blocks = (seq_len + BLOCK_SIZE - 1) // BLOCK_SIZE
+            for relative_block_idx in range(num_suffix_blocks):
+                logical_block_idx = logical_offset + relative_block_idx
+                if logical_block_idx >= len(blocks):
+                    continue
+                phys_block = blocks[logical_block_idx]
+                
+                # start_idx/end_idx refer to positions WITHIN the given cache tensor (the suffix)
+                start_idx = relative_block_idx * BLOCK_SIZE
                 end_idx = min(start_idx + BLOCK_SIZE, seq_len)
                 slice_len = end_idx - start_idx
                 
-                # Copy into physical storage
+                # Copy into physical storage.
+                # logical_offset shifts WHERE IN THE PAGE TABLE we write, but does
+                # NOT shift where we read from inside the incoming keys/vals tensor, since that tensor
+                # is already just the suffix.
                 self.physical_keys[phys_block, layer_idx, :, :slice_len, :] = keys[:, start_idx:end_idx, :]
                 self.physical_values[phys_block, layer_idx, :, :slice_len, :] = vals[:, start_idx:end_idx, :]
 
