@@ -467,9 +467,10 @@ class KVCacheManager:
         
         in_use_count = sum(1 for b in self.block_info if b.ref_count > 0)
         free_count = len(self.free_blocks)
+        cached_free_count = len(self.cached_free)
         
-        if free_count + in_use_count != self.max_blocks:
-            errors.append(f"Block count mismatch: {free_count} free + {in_use_count} in-use != {self.max_blocks} max")
+        if free_count + cached_free_count + in_use_count != self.max_blocks:
+            errors.append(f"Block count mismatch: {free_count} free + {cached_free_count} cached-free + {in_use_count} in-use != {self.max_blocks} max")
             
         actual_page_table_counts = {}
         for request_id, blocks in self.page_table.items():
@@ -484,7 +485,13 @@ class KVCacheManager:
         free_set = set(self.free_blocks)
         for bid in actual_page_table_counts.keys():
             if bid in free_set:
-                errors.append(f"block {bid} has ref_count {info.ref_count} but is not in page_table")
+                errors.append(f"block {bid} appears in both free_blocks and page_table")
+            if bid in self.cached_free:
+                errors.append(f"block {bid} appears in both cached_free and page_table")
+                
+        for bid in self.cached_free:
+            if bid in free_set:
+                errors.append(f"block {bid} appears in both free_blocks and cached_free")
                 
         return errors
 
