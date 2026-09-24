@@ -1,0 +1,102 @@
+[
+  {
+    "request_id": "req_0",
+    "ttft": 1.0830023288726807,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_1",
+    "ttft": 0.05768322944641113,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_2",
+    "ttft": 0.12262368202209473,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_3",
+    "ttft": 0.060630083084106445,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_4",
+    "ttft": 0.05861639976501465,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_5",
+    "ttft": 0.07426667213439941,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_6",
+    "ttft": 0.11737775802612305,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_7",
+    "ttft": 0.06454849243164062,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_8",
+    "ttft": 0.11125659942626953,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_9",
+    "ttft": 0.06550288200378418,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_10",
+    "ttft": 0.160780668258667,
+    "possible_loop": false
+  },
+  {
+    "request_id": "req_11",
+    "ttft": 0.0519261360168457,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_12",
+    "ttft": 0.11362695693969727,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_13",
+    "ttft": 0.11840629577636719,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_14",
+    "ttft": 0.0660858154296875,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_15",
+    "ttft": 0.07823657989501953,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_16",
+    "ttft": 0.06790804862976074,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_17",
+    "ttft": 0.061618804931640625,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_18",
+    "ttft": 0.10538911819458008,
+    "possible_loop": true
+  },
+  {
+    "request_id": "req_19",
+    "ttft": 0.10691261291503906,
+    "possible_loop": true
+  }
+]

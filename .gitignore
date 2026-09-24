@@ -21,3 +21,4 @@ test_cache_shape.py
 experiments/debug_cache.py
 experiments/debug_cache2.py
 experiments/list_hf_cache.py
+vllm_env/

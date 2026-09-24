@@ -115,7 +115,7 @@ def main():
                 {"role": "user", "content": "What is the capital of Spain?"}
             ],
             "response_queue": req3_q,
-            "max_tokens": 10
+            "max_tokens": 6
         })
         
         ans3 = wait_for_response(req3_q)

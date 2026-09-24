@@ -32,13 +32,15 @@ class RequestState:
     This keeps track of what the user asked, how much of the response has been
     generated so far, and the model's memory of this specific conversation.
     """
-    def __init__(self, request_id: str, prompt: str, prompt_len: int, response_queue: queue.Queue, tier: str = "free", max_tokens: int = 100):
+    def __init__(self, request_id: str, prompt: str, prompt_len: int, response_queue: queue.Queue, tier: str = "free", max_tokens: int = 100, arrival_time: float = 0.0):
         self.request_id = request_id
         self.prompt = prompt
         self.prompt_len = prompt_len
         self.response_queue = response_queue
         self.tier = tier
         self.max_tokens = max_tokens
+        self.arrival_time = arrival_time
+        self.first_token_time: Optional[float] = None
         self.token_ids: List[int] = []
         self.finished = False
         self.tokens_produced = 0
@@ -50,7 +52,8 @@ class RequestState:
         self.latest_token: Optional[torch.Tensor] = None
 
 class BatchEngine:
-    def __init__(self, model_id: str = "Qwen/Qwen2.5-1.5B-Instruct"):
+    def __init__(self, model_id: str = "Qwen/Qwen2.5-1.5B-Instruct", enable_prefix_cache: bool = True):
+        self.enable_prefix_cache = enable_prefix_cache
         print("Initializing BatchEngine...")
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
         
@@ -98,7 +101,8 @@ class BatchEngine:
         """
         req_id = str(uuid.uuid4())
         resp_q = queue.Queue()
-        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q, "tier": tier, "max_tokens": max_tokens, "messages": messages or []})
+        arrival_time = time.time()
+        self.pending_queue.put({"id": req_id, "prompt": prompt, "response_queue": resp_q, "tier": tier, "max_tokens": max_tokens, "messages": messages or [], "arrival_time": arrival_time})
         return req_id, resp_q
 
     def get_stats(self) -> dict:
@@ -160,7 +164,8 @@ class BatchEngine:
                     prompt_len=prompt_len,
                     response_queue=next_req["response_queue"],
                     tier=next_req.get("tier", "free"),
-                    max_tokens=next_req.get("max_tokens", 100)
+                    max_tokens=next_req.get("max_tokens", 100),
+                    arrival_time=next_req.get("arrival_time", 0.0)
                 )
                 
                 prefix_hit = False
@@ -170,6 +175,8 @@ class BatchEngine:
                 token_ids_as_list = inputs.input_ids[0].tolist()
                 
                 try:
+                    if not self.enable_prefix_cache:
+                        raise RuntimeError("Prefix cache disabled")
                     hit_blocks_count = self.kv_manager.acquire_prefix(state.request_id, token_ids_as_list)
                     if hit_blocks_count > 0:
                         prefix_block_ids = self.kv_manager.page_table[state.request_id][:hit_blocks_count]
@@ -214,6 +221,7 @@ class BatchEngine:
                 # Send the very first word back to the user immediately so they know we started.
                 first_token = self.tokenizer.decode([state.latest_token.item()], skip_special_tokens=True)
                 if first_token:
+                    state.first_token_time = time.time()
                     state.response_queue.put({"type": "token", "content": first_token})
                 
                 active_slots.append(state)
@@ -223,6 +231,9 @@ class BatchEngine:
                     "prefix_hit": prefix_hit,
                     "prefix_blocks_reused": prefix_blocks_reused,
                     "prefix_tokens_saved": prefix_tokens_saved,
+                    "arrival_time": state.arrival_time,
+                    "first_token_time": state.first_token_time,
+                    "ttft_seconds": (state.first_token_time - state.arrival_time) if state.first_token_time and state.arrival_time > 0.0 else None,
                 })
                 
             # If no one is asking questions right now, take a brief nap so we don't overwork the computer.

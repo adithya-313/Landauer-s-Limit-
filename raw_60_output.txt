@@ -1,0 +1,66 @@
+--- Cache Disabled (200-token) ---
+Req 0: ttft=1.2915s, hit=False, saved=0, loop=False
+Req 1: ttft=0.2201s, hit=False, saved=0, loop=False
+Req 2: ttft=0.3992s, hit=False, saved=0, loop=False
+Req 3: ttft=0.2737s, hit=False, saved=0, loop=False
+Req 4: ttft=0.2307s, hit=False, saved=0, loop=False
+Req 5: ttft=0.2218s, hit=False, saved=0, loop=False
+Req 6: ttft=0.5248s, hit=False, saved=0, loop=False
+Req 7: ttft=0.2726s, hit=False, saved=0, loop=False
+Req 8: ttft=0.4371s, hit=False, saved=0, loop=False
+Req 9: ttft=0.2280s, hit=False, saved=0, loop=False
+Req 10: ttft=0.7993s, hit=False, saved=0, loop=False
+Req 11: ttft=0.2757s, hit=False, saved=0, loop=False
+Req 12: ttft=0.5203s, hit=False, saved=0, loop=False
+Req 13: ttft=0.5760s, hit=False, saved=0, loop=False
+Req 14: ttft=0.2970s, hit=False, saved=0, loop=False
+Req 15: ttft=0.2517s, hit=False, saved=0, loop=False
+Req 16: ttft=0.2757s, hit=False, saved=0, loop=True
+Req 17: ttft=0.2535s, hit=False, saved=0, loop=False
+Req 18: ttft=0.4814s, hit=False, saved=0, loop=False
+Req 19: ttft=0.5092s, hit=False, saved=0, loop=False
+
+--- Cache Enabled (20-token) ---
+Req 0: ttft=0.7750s, hit=False, saved=0, loop=False
+Req 1: ttft=0.1411s, hit=True, saved=16, loop=False
+Req 2: ttft=0.2773s, hit=True, saved=16, loop=False
+Req 3: ttft=0.1120s, hit=True, saved=16, loop=False
+Req 4: ttft=0.0961s, hit=True, saved=16, loop=False
+Req 5: ttft=0.1031s, hit=True, saved=16, loop=False
+Req 6: ttft=0.3792s, hit=True, saved=16, loop=False
+Req 7: ttft=0.1121s, hit=True, saved=16, loop=False
+Req 8: ttft=0.3361s, hit=True, saved=16, loop=False
+Req 9: ttft=0.1007s, hit=True, saved=16, loop=False
+Req 10: ttft=0.5062s, hit=True, saved=16, loop=False
+Req 11: ttft=0.1184s, hit=True, saved=16, loop=False
+Req 12: ttft=0.3019s, hit=True, saved=16, loop=True
+Req 13: ttft=0.3781s, hit=True, saved=16, loop=False
+Req 14: ttft=0.1426s, hit=True, saved=16, loop=False
+Req 15: ttft=0.1461s, hit=True, saved=16, loop=False
+Req 16: ttft=0.1388s, hit=True, saved=16, loop=False
+Req 17: ttft=0.1676s, hit=True, saved=16, loop=False
+Req 18: ttft=0.2633s, hit=True, saved=16, loop=False
+Req 19: ttft=0.3521s, hit=True, saved=16, loop=False
+
+--- Cache Enabled (200-token) ---
+Req 0: ttft=0.8419s, hit=False, saved=0, loop=False
+Req 1: ttft=0.1438s, hit=True, saved=208, loop=False
+Req 2: ttft=0.2700s, hit=True, saved=208, loop=True
+Req 3: ttft=0.1524s, hit=True, saved=208, loop=True
+Req 4: ttft=0.1396s, hit=True, saved=208, loop=False
+Req 5: ttft=0.1183s, hit=True, saved=208, loop=False
+Req 6: ttft=0.3930s, hit=True, saved=208, loop=False
+Req 7: ttft=0.1120s, hit=True, saved=208, loop=False
+Req 8: ttft=0.4185s, hit=True, saved=208, loop=False
+Req 9: ttft=0.1420s, hit=True, saved=208, loop=False
+Req 10: ttft=0.5589s, hit=True, saved=208, loop=False
+Req 11: ttft=0.1137s, hit=True, saved=208, loop=False
+Req 12: ttft=0.3719s, hit=True, saved=208, loop=False
+Req 13: ttft=0.4170s, hit=True, saved=208, loop=False
+Req 14: ttft=0.1460s, hit=True, saved=208, loop=False
+Req 15: ttft=0.1655s, hit=True, saved=208, loop=False
+Req 16: ttft=0.1517s, hit=True, saved=208, loop=True
+Req 17: ttft=0.1003s, hit=True, saved=208, loop=False
+Req 18: ttft=0.3635s, hit=True, saved=208, loop=False
+Req 19: ttft=0.4425s, hit=True, saved=208, loop=False
+

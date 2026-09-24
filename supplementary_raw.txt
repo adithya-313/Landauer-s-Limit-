@@ -1,0 +1,43 @@
+Condition A: Cache Disabled
+Req 1/20 - Loop: False, Hit: False, Saved: 0, TTFT: 2.4683s
+Req 2/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.5425s
+Req 3/20 - Loop: True, Hit: False, Saved: 0, TTFT: 0.8745s
+Req 4/20 - Loop: True, Hit: False, Saved: 0, TTFT: 0.4952s
+Req 5/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.5371s
+Req 6/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.6259s
+Req 7/20 - Loop: False, Hit: False, Saved: 0, TTFT: 1.0285s
+Req 8/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.5840s
+Req 9/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.8960s
+Req 10/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.5692s
+Req 11/20 - Loop: False, Hit: False, Saved: 0, TTFT: 1.5963s
+Req 12/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.5751s
+Req 13/20 - Loop: True, Hit: False, Saved: 0, TTFT: 1.1309s
+Req 14/20 - Loop: False, Hit: False, Saved: 0, TTFT: 1.1604s
+Req 15/20 - Loop: True, Hit: False, Saved: 0, TTFT: 0.6128s
+Req 16/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.6557s
+Req 17/20 - Loop: True, Hit: False, Saved: 0, TTFT: 0.6251s
+Req 18/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.6325s
+Req 19/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.8460s
+Req 20/20 - Loop: False, Hit: False, Saved: 0, TTFT: 0.9703s
+
+Condition B: Cache Enabled
+Req 1/20 - Loop: False, Hit: False, Saved: 0, TTFT: 1.5541s
+Req 2/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2837s
+Req 3/20 - Loop: True, Hit: True, Saved: 496, TTFT: 0.5325s
+Req 4/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2445s
+Req 5/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.3580s
+Req 6/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2087s
+Req 7/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.5745s
+Req 8/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2329s
+Req 9/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.5090s
+Req 10/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2067s
+Req 11/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.8223s
+Req 12/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2117s
+Req 13/20 - Loop: True, Hit: True, Saved: 496, TTFT: 0.5271s
+Req 14/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.7314s
+Req 15/20 - Loop: True, Hit: True, Saved: 496, TTFT: 0.3225s
+Req 16/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.2901s
+Req 17/20 - Loop: True, Hit: True, Saved: 496, TTFT: 0.2742s
+Req 18/20 - Loop: True, Hit: True, Saved: 496, TTFT: 0.1770s
+Req 19/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.5222s
+Req 20/20 - Loop: False, Hit: True, Saved: 496, TTFT: 0.5552s

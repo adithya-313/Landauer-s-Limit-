@@ -1,0 +1,286 @@
+{
+  "cache_disabled_500": [
+    {
+      "request_id": "b3c22fc5-f4d8-4b14-b0a9-e384655c5eaf",
+      "ttft": 2.4683187007904053,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "b592f2a9-fd6c-4373-aa92-5a17e1e92d51",
+      "ttft": 0.542457103729248,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "800c42a3-edfa-421b-9975-7775221183d6",
+      "ttft": 0.874539852142334,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": true
+    },
+    {
+      "request_id": "262642b7-1a62-47b7-a9bf-cfba13a9de99",
+      "ttft": 0.4952199459075928,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": true
+    },
+    {
+      "request_id": "f3cdb617-c9fa-48f6-92e8-c72af922134c",
+      "ttft": 0.537097692489624,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "ec443a00-7d1d-46a9-9e96-95591f0d7485",
+      "ttft": 0.6258690357208252,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "ce20d1e8-c98c-4959-a10e-3b676dc306b5",
+      "ttft": 1.0285141468048096,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "a6056671-5304-4c0a-8908-dc469983b513",
+      "ttft": 0.5839583873748779,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "5600c0fb-84e3-458a-ab0c-636113d3b786",
+      "ttft": 0.8959636688232422,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "42307efe-eb2b-43da-8bb0-aded9276aeea",
+      "ttft": 0.5691514015197754,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "72dc0634-e6dd-4c08-b7df-609315254bd4",
+      "ttft": 1.5962753295898438,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "5e29dddc-f253-4334-994e-7389d5607dc0",
+      "ttft": 0.5750722885131836,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "558cdd94-920c-41ef-a1cc-1bb1723df38a",
+      "ttft": 1.1309471130371094,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": true
+    },
+    {
+      "request_id": "2c9257d8-7b76-47a3-8eac-80be3cd1fd20",
+      "ttft": 1.1604366302490234,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "8fc89df1-9199-4aab-8e2c-0190afcc5b07",
+      "ttft": 0.6128485202789307,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": true
+    },
+    {
+      "request_id": "1a91a892-9d22-42d5-b311-4790763e54f6",
+      "ttft": 0.655651330947876,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "66fa3a12-c495-4f16-bf4d-bdc9a40b077f",
+      "ttft": 0.6251010894775391,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": true
+    },
+    {
+      "request_id": "6cd0a2f2-0686-4cf4-a7f7-70e4cc3bd52f",
+      "ttft": 0.6325247287750244,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "67113a0b-f906-4327-8fa0-d60c68ec9df9",
+      "ttft": 0.8459782600402832,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "3e54bbee-fe92-4296-a785-1a14c3904586",
+      "ttft": 0.9703104496002197,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    }
+  ],
+  "cache_enabled_500": [
+    {
+      "request_id": "a15c80c7-de1c-44d7-ba09-74a1e0c831b6",
+      "ttft": 1.5541057586669922,
+      "hit": false,
+      "saved": 0,
+      "possible_loop": false
+    },
+    {
+      "request_id": "a637804d-42b7-4eca-8649-5b21bd9893a3",
+      "ttft": 0.2837200164794922,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "04d57035-f1b9-420d-a236-c7d735dc83e7",
+      "ttft": 0.5325295925140381,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": true
+    },
+    {
+      "request_id": "6e54bd0c-41f2-4120-94da-5fdea50d33f8",
+      "ttft": 0.2444777488708496,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "3e7216fc-857d-4d81-8935-58c1a92a2811",
+      "ttft": 0.3580489158630371,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "6e3b2c6d-471c-4fe6-b038-009460592f57",
+      "ttft": 0.20870351791381836,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "a5df83b0-ec0f-4e76-a48a-e5d6b306eb4d",
+      "ttft": 0.5745115280151367,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "893e0ec1-1d6e-4494-912b-29cb716f4712",
+      "ttft": 0.23288440704345703,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "1eb7a460-ff18-476d-b3f2-dec136aabc47",
+      "ttft": 0.5089783668518066,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "2a25bed0-cc4f-480d-8431-cd480d7ce523",
+      "ttft": 0.20670008659362793,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "bd54fa50-25fb-4331-8e14-022ae1788dab",
+      "ttft": 0.8222815990447998,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "a26804cc-03dc-4aa6-9b7b-ebad080425cc",
+      "ttft": 0.21171784400939941,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "e6a061e8-25b5-4590-9a0d-e1a14c7c4a76",
+      "ttft": 0.5270516872406006,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": true
+    },
+    {
+      "request_id": "6c4782f7-c0bb-4128-9aae-647d4dbf9fb6",
+      "ttft": 0.7313778400421143,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "46259022-a688-4f82-81ab-c942048f29aa",
+      "ttft": 0.32251882553100586,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": true
+    },
+    {
+      "request_id": "eee4ba97-4a38-489f-9780-604d020e2490",
+      "ttft": 0.2900552749633789,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "a93375a8-b5a0-49ed-be3a-babd59625f60",
+      "ttft": 0.2742125988006592,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": true
+    },
+    {
+      "request_id": "bffb5c15-fdea-436f-9538-d51c51ff5c43",
+      "ttft": 0.17695927619934082,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": true
+    },
+    {
+      "request_id": "f4a022a0-277c-49b0-825b-f0aca8a77596",
+      "ttft": 0.5221865177154541,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    },
+    {
+      "request_id": "d9f55d25-edfb-41f4-9f3b-06a29cc11b9b",
+      "ttft": 0.5552239418029785,
+      "hit": true,
+      "saved": 496,
+      "possible_loop": false
+    }
+  ]
+}
