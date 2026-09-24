@@ -17,6 +17,7 @@ Key behaviours:
 import asyncio
 import json
 import logging
+import random
 from typing import AsyncIterator, Dict, Any
 
 import httpx
@@ -101,11 +102,17 @@ class ColabAdapter:
                     attempt, exc,
                 )
                 if attempt < MAX_RETRIES:
-                    backoff = BASE_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                    # Backoff formula: base_delay * 2^attempt + jitter
+                    # base_delay = 1.0 seconds, max_attempts = 3
+                    # Jitter is uniform random [0, 1) seconds added to each wait.
+                    # Why jitter? If multiple requests all fail at the same moment and retry
+                    # at the exact same time, they hammer the server together (thundering herd).
+                    # Jitter staggers them so retries are spread out over time.
+                    wait = BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)) + random.uniform(0, 1)
                     logger.info(
-                        "Retrying in %.1f seconds ...", backoff,
+                        "Retrying in %.2f seconds (base=%.1f + jitter) ...", wait, BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)),
                     )
-                    await asyncio.sleep(backoff)
+                    await asyncio.sleep(wait)
                 continue
 
             except httpx.HTTPStatusError as exc:
