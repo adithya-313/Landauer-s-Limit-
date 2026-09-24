@@ -30,44 +30,8 @@ _gpu_cache_usage_pct: float = 0.0
 _BATCH_EVENTS_PATH = Path("batch_events.jsonl")
 
 
-def _read_latest_kv_cache_pct() -> float:
-    """
-    Tails batch_events.jsonl for the most recent kv_cache_stats entry.
-
-    GPU cache usage % = allocated_blocks / (allocated_blocks + free_blocks) * 100.
-
-    Returns 0.0 if the file does not exist or contains no kv_cache_stats rows.
-    Never raises — callers should not crash on a read error.
-    """
-    if not _BATCH_EVENTS_PATH.exists():
-        return 0.0
-
-    last_stat = None
-    try:
-        with _BATCH_EVENTS_PATH.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if obj.get("event") == "kv_cache_stats":
-                    last_stat = obj
-    except OSError:
-        return 0.0
-
-    if last_stat is None:
-        return 0.0
-
-    allocated = last_stat.get("allocated_blocks", 0)
-    free = last_stat.get("free_blocks", 0)
-    total = allocated + free
-    if total == 0:
-        return 0.0
-    return (allocated / total) * 100.0
-
+import httpx
+import re
 
 async def poll_gpu_metrics(interval_seconds: float = 0.1) -> None:
     """
@@ -78,12 +42,20 @@ async def poll_gpu_metrics(interval_seconds: float = 0.1) -> None:
     it never propagates an exception that would kill the background task.
     """
     global _gpu_cache_usage_pct
-    while True:
-        try:
-            _gpu_cache_usage_pct = _read_latest_kv_cache_pct()
-        except Exception as exc:  # pragma: no cover — defensive belt-and-braces
-            print(f"[gpu_monitor] poll error: {exc}", file=sys.stderr)
-        await asyncio.sleep(interval_seconds)
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                response = await client.get("http://localhost:8001/metrics", timeout=2.0)
+                response.raise_for_status()
+                match = re.search(r'^gpu_cache_usage_pct\s+([\d\.]+)', response.text, re.MULTILINE)
+                if match:
+                    _gpu_cache_usage_pct = float(match.group(1))
+                else:
+                    _gpu_cache_usage_pct = 0.0
+            except Exception as exc:  # pragma: no cover — defensive belt-and-braces
+                _gpu_cache_usage_pct = 0.0
+                print(f"[gpu_monitor] poll error: {exc}", file=sys.stderr)
+            await asyncio.sleep(interval_seconds)
 
 
 def get_gpu_usage_pct() -> float:

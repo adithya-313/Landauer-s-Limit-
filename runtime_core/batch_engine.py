@@ -10,8 +10,13 @@ import logging
 from typing import List, Dict, Optional, Any
 from .kv_cache_manager import KVCacheManager
 from .prefix_hashing import BLOCK_SIZE
+from prometheus_client import start_http_server, Gauge
 
 logger = logging.getLogger(__name__)
+
+gpu_cache_usage_pct = Gauge('gpu_cache_usage_pct', 'Percentage of KV cache blocks currently allocated')
+kv_fragmentation_ratio = Gauge('kv_fragmentation_ratio', 'Ratio of fragmented (unusable) KV blocks')
+engine_pending_requests = Gauge('engine_pending_requests', 'Number of requests currently in the queue')
 
 # ------------------------------------------------------------------
 # CONFIGURATION
@@ -79,9 +84,14 @@ class BatchEngine:
         self.pending_queue = queue.Queue()
         self.thread = None
         self.running = False
+        self._metrics_server_started = False
         
     def start(self):
         """Starts the background engine thread so it can begin processing requests continuously."""
+        if getattr(self, '_metrics_server_started', False) == False:
+            start_http_server(port=8001)
+            self._metrics_server_started = True
+
         if not self.running:
             self.running = True
             self.thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -315,3 +325,15 @@ class BatchEngine:
             
             # Log fragmentation if needed (once per second)
             self.kv_manager.log_fragmentation_if_needed(active_slots, self._log_event)
+
+            engine_pending_requests.set(self.pending_queue.qsize())
+            total_blocks = self.kv_manager.max_blocks
+            free_blocks = len(self.kv_manager.free_blocks)
+            used_pct = ((total_blocks - free_blocks) / total_blocks) * 100.0
+            gpu_cache_usage_pct.set(used_pct)
+            
+            used_tokens = sum(s.prompt_len + s.tokens_produced for s in active_slots)
+            allocated_blocks_total = sum(len(s.cache) for s in active_slots)
+            total_allocated_tokens = allocated_blocks_total * BLOCK_SIZE
+            frag_ratio = (total_allocated_tokens - used_tokens) / total_allocated_tokens if total_allocated_tokens > 0 else 0.0
+            kv_fragmentation_ratio.set(frag_ratio)
