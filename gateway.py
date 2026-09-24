@@ -51,6 +51,11 @@ from semantic_cache import semantic_cache as _cache_instance
 from adapters.router import EngineRouter
 from request_queue import RequestQueue
 
+# Phase 7a — Admission control, GPU poller, circuit breaker.
+from admission_controller import admit_request
+from gpu_monitor import poll_gpu_metrics
+from circuit_breaker import get_circuit_breaker
+
 # Create the global router instance that all requests share.
 _router = EngineRouter()
 
@@ -294,31 +299,73 @@ async def on_startup():
         _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
         _guardrail_module.SIMILARITY_THRESHOLD,
     )
-    
+
+    # Phase 7a-1 — Start GPU cache poller (100 ms interval).
+    asyncio.create_task(poll_gpu_metrics(interval_seconds=0.1))
+    logger.info("GPU cache metrics poller started (100 ms interval).")
+
     # Start the single background queue worker
     asyncio.create_task(queue_worker())
 
 async def _handle_request(item):
     """
     Takes exactly one user's question from the waiting line and manages its entire lifecycle.
-    
+
+    Phase 7a: runs admission control before routing. If rejected, drops a 429
+    error event into the response queue. If rerouted, uses the alternate engine_id
+    returned by the admission controller.
+
     Inputs:
     - item: A bundle of information about the user's request (their question, which model they want,
             and the specific mailbox where we should drop the answers).
-            
+
     Returns:
     - Nothing directly. Instead, it drops the answer words into the user's mailbox as they are generated.
     """
     try:
-        # Ask the router to find the right AI engine to answer this specific question.
-        # As the engine generates words one-by-one, we loop over them here.
-        async for token in _router.route_request(item.engine, item.prompt, item.tier, item.max_tokens, getattr(item, "messages", None)):
-            # Drop the new word into the user's personal mailbox so the web server can send it to them.
-            await item.response_queue.put({"type": "token", "content": token})
-            
-        # The engine finished the whole answer, so we drop a special "done" message into the mailbox.
+        # --- Phase 7a: Admission control ---
+        admission = await admit_request(
+            request_id=item.request_id,
+            tier=item.tier,
+            engine_id=item.engine,
+            queue_depth=_request_queue.queue.qsize(),
+            kv_fragmentation=0.0,  # populated by KV manager when available
+        )
+
+        if admission["decision"] == "reject":
+            # Return the 429 body as an error event so the streaming generator
+            # can surface it to the HTTP client.
+            await item.response_queue.put({
+                "type": "error",
+                "error": admission["response"]["error"]["message"],
+                "status_code": 429,
+            })
+            return
+
+        # Use the (possibly rerouted) engine_id from the admission decision.
+        effective_engine = admission["engine_id"]
+
+        # --- Phase 7a: Circuit-breaker-wrapped routing ---
+        # get_circuit_breaker returns the shared breaker for this engine.
+        # For generator adapters we cannot wrap the whole async-for in cb.call(),
+        # so we record success/failure around the iteration loop.
+        cb = get_circuit_breaker(effective_engine)
+        if cb.is_open():
+            raise RuntimeError(f"CircuitBreaker OPEN for engine '{effective_engine}'")
+
+        try:
+            async for token in _router.route_request(
+                effective_engine, item.prompt, item.tier, item.max_tokens,
+                getattr(item, "messages", None)
+            ):
+                await item.response_queue.put({"type": "token", "content": token})
+            cb.record_success()
+        except Exception:
+            cb.record_failure()
+            raise
+
         await item.response_queue.put({"type": "done"})
-        
+
     except Exception as e:
         # If the engine crashes while answering, we don't want the web server to wait forever.
         # We drop a special error message into the mailbox so the user knows something broke.
