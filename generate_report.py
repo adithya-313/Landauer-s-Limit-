@@ -342,7 +342,158 @@ def _fmt(value, fmt_spec=".3f", missing="N/A"):
     return format(value, fmt_spec)
 
 
-def format_markdown(dashboard_1, dashboard_4, appendix):
+# ---------------------------------------------------------------------------
+# STEP 2b — Dashboard 2A: Semantic Cache (Phase 4)
+# ---------------------------------------------------------------------------
+
+def compute_dashboard_2_semantic(events_path="semantic_cache_events.jsonl"):
+    """
+    Reads semantic_cache_events.jsonl — written by DeterministicSemanticCache._log_event()
+    in semantic_cache.py.  Each record is one lookup attempt:
+
+        {"timestamp": ..., "hit": bool, "similarity": float|null, "lookup_latency_ms": float}
+
+    Computes hit rate and latency statistics across all lookups.
+    Returns None if the file does not exist (formatter prints "Data not available").
+    """
+    path = Path(events_path)
+    if not path.exists():
+        print(f"[compute_dashboard_2_semantic] WARNING: {path} not found.", file=sys.stderr)
+        return None
+
+    all_latencies = []
+    hit_latencies = []
+    miss_latencies = []
+    hit_count = 0
+    miss_count = 0
+
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            latency = rec.get("lookup_latency_ms")
+            if latency is not None:
+                all_latencies.append(latency)
+
+            if rec.get("hit") is True:
+                hit_count += 1
+                if latency is not None:
+                    hit_latencies.append(latency)
+            else:
+                miss_count += 1
+                if latency is not None:
+                    miss_latencies.append(latency)
+
+    total = hit_count + miss_count
+    if total == 0:
+        return None
+
+    return {
+        "total_lookups": total,
+        "hit_count": hit_count,
+        "miss_count": miss_count,
+        "hit_rate": hit_count / total,
+        "mean_lookup_latency_ms": _mean(all_latencies),
+        "p95_lookup_latency_ms": _p95(all_latencies),
+        "mean_hit_latency_ms": _mean(hit_latencies),
+        "mean_miss_latency_ms": _mean(miss_latencies),
+    }
+
+
+# ---------------------------------------------------------------------------
+# STEP 2c — Dashboard 2B: Prefix Cache (Phase 6d)
+# ---------------------------------------------------------------------------
+
+def compute_dashboard_2_prefix(events_path="batch_events.jsonl"):
+    """
+    Reads batch_events.jsonl — written by BatchEngine._log_event() in
+    runtime_core/batch_engine.py.  Only records that contain a "prefix_stats"
+    key carry prefix cache data; all other records (kv_cache_stats events,
+    batch steps without admissions) are skipped.
+
+    Each prefix_stats entry has this confirmed schema:
+        {
+            "request_id": "...",
+            "prefix_hit": bool,
+            "prefix_blocks_reused": int,
+            "prefix_tokens_saved": int,
+            "arrival_time": float,
+            "first_token_time": float,
+            "ttft_seconds": float
+        }
+
+    Returns None if the file does not exist or contains no prefix_stats entries.
+    Note: this data comes from Phase 6d custom-runtime traffic only.
+    """
+    path = Path(events_path)
+    if not path.exists():
+        print(f"[compute_dashboard_2_prefix] WARNING: {path} not found.", file=sys.stderr)
+        return None
+
+    # Flatten all prefix_stats sub-objects into one list.
+    entries = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            for entry in rec.get("prefix_stats", []):
+                entries.append(entry)
+
+    if not entries:
+        print(
+            "[compute_dashboard_2_prefix] WARNING: no prefix_stats entries found.",
+            file=sys.stderr,
+        )
+        return None
+
+    hit_entries = [e for e in entries if e.get("prefix_hit") is True]
+    miss_entries = [e for e in entries if e.get("prefix_hit") is False]
+
+    total = len(entries)
+    hit_count = len(hit_entries)
+    miss_count = len(miss_entries)
+
+    tokens_saved = [e["prefix_tokens_saved"] for e in hit_entries if "prefix_tokens_saved" in e]
+    ttft_hits = [e["ttft_seconds"] for e in hit_entries if e.get("ttft_seconds") is not None]
+    ttft_misses = [e["ttft_seconds"] for e in miss_entries if e.get("ttft_seconds") is not None]
+
+    mean_ttft_hit = _mean(ttft_hits)
+    mean_ttft_miss = _mean(ttft_misses)
+
+    # TTFT reduction: how much faster are cache hits vs cold misses?
+    if mean_ttft_hit is not None and mean_ttft_miss is not None and mean_ttft_miss > 0:
+        ttft_reduction_pct = (mean_ttft_miss - mean_ttft_hit) / mean_ttft_miss * 100
+    else:
+        ttft_reduction_pct = None
+
+    return {
+        "total_requests": total,
+        "hit_count": hit_count,
+        "miss_count": miss_count,
+        "hit_rate": hit_count / total if total > 0 else 0.0,
+        "mean_tokens_saved_per_hit": _mean(tokens_saved),
+        "mean_ttft_hit": mean_ttft_hit,
+        "mean_ttft_miss": mean_ttft_miss,
+        "ttft_reduction_pct": ttft_reduction_pct,
+    }
+
+
+# ---------------------------------------------------------------------------
+# STEP 5 — Format Markdown
+# ---------------------------------------------------------------------------
+
+def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix):
     """
     Assembles the full Markdown report string from the computed data structures.
     Returns the string (does not print it).
@@ -394,6 +545,59 @@ def format_markdown(dashboard_1, dashboard_4, appendix):
         " (reported separately in Dashboard 2).",
         "",
     ]
+
+    # ---- Dashboard 2 ----
+    lines += [
+        "## Dashboard 2: Semantic Cache & Prefix Cache Efficiency",
+        "",
+        "### 2A: Semantic Cache (Phase 4 - FAISS Dual-Lock)",
+        "",
+    ]
+    if dashboard_2_semantic is None:
+        lines += ["> **Data not available** — `semantic_cache_events.jsonl` not found.", ""]
+    else:
+        s = dashboard_2_semantic
+        lines += [
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Total Lookups | {s['total_lookups']} |",
+            f"| Hit Count | {s['hit_count']} |",
+            f"| Miss Count | {s['miss_count']} |",
+            f"| Hit Rate | {_fmt(s['hit_rate'], '.1%')} |",
+            f"| Mean Lookup Latency | {_fmt(s['mean_lookup_latency_ms'], '.2f')} ms |",
+            f"| p95 Lookup Latency | {_fmt(s['p95_lookup_latency_ms'], '.2f')} ms |",
+            f"| Mean Latency (Hits) | {_fmt(s['mean_hit_latency_ms'], '.2f')} ms |",
+            f"| Mean Latency (Misses) | {_fmt(s['mean_miss_latency_ms'], '.2f')} ms |",
+            "",
+            "> Source: `semantic_cache_events.jsonl`",
+            "",
+        ]
+
+    lines += [
+        "### 2B: Prefix Cache (Phase 6d - KV Block Hash Reuse)",
+        "",
+    ]
+    if dashboard_2_prefix is None:
+        lines += ["> **Data not available** — `batch_events.jsonl` not found or contains no prefix_stats.", ""]
+    else:
+        p = dashboard_2_prefix
+        lines += [
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Total Requests with Prefix Data | {p['total_requests']} |",
+            f"| Prefix Hit Count | {p['hit_count']} |",
+            f"| Prefix Miss Count | {p['miss_count']} |",
+            f"| Prefix Hit Rate | {_fmt(p['hit_rate'], '.1%')} |",
+            f"| Mean Tokens Saved per Hit | {_fmt(p['mean_tokens_saved_per_hit'], '.1f')} |",
+            f"| Mean TTFT (Hits) | {_fmt(p['mean_ttft_hit'], '.3f')} s |",
+            f"| Mean TTFT (Misses) | {_fmt(p['mean_ttft_miss'], '.3f')} s |",
+            f"| TTFT Reduction from Hits | {_fmt(p['ttft_reduction_pct'], '.1f')}% |",
+            "",
+            "> Source: `batch_events.jsonl` (prefix_stats sub-records)",
+            "> **Note:** Prefix cache data comes from Phase 6d traffic through the"
+            " custom runtime only, not from semantic cache lookups.",
+            "",
+        ]
 
     # ---- Dashboard 4 ----
     overall = dashboard_4["overall"]
@@ -497,11 +701,14 @@ def main():
 
     # Compute each section.
     dashboard_1 = compute_dashboard_1(records)
+    # Dashboard 2: two separate caching systems — do NOT conflate.
+    dashboard_2_semantic = compute_dashboard_2_semantic("semantic_cache_events.jsonl")
+    dashboard_2_prefix = compute_dashboard_2_prefix("batch_events.jsonl")
     dashboard_4 = compute_dashboard_4(records)
     appendix = compute_appendix("docs/proof")
 
     # Format and print.
-    report = format_markdown(dashboard_1, dashboard_4, appendix)
+    report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix)
     print(report)
 
 
