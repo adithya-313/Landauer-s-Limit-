@@ -32,3 +32,6 @@ actions_taken.jsonl
 # Scratch files
 request.json
 git_files.txt
+
+# Generated report output
+report.md
