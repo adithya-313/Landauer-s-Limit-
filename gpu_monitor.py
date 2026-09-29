@@ -45,7 +45,7 @@ async def poll_gpu_metrics(interval_seconds: float = 0.1) -> None:
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                response = await client.get("http://localhost:8001/metrics", timeout=2.0)
+                response = await client.get("http://127.0.0.1:8002/metrics", timeout=2.0)
                 response.raise_for_status()
                 match = re.search(r'^gpu_cache_usage_pct\s+([\d\.]+)', response.text, re.MULTILINE)
                 if match:

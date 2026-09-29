@@ -218,22 +218,35 @@ async def inject_failure(failure_type: str, run_id: str) -> None:
         )
 
     elif failure_type == "guardrail_timeout":
-        # Temporarily patch guardrail to sleep longer than its timeout.
-        # Since the gateway handles guardrail internally and we're not running
-        # the full gateway here, we simulate by calling reject_request directly
-        # with a guardrail-timeout reason (representing fail-closed behaviour).
-        import protective_actions
+        # Patch the guardrail to sleep beyond its timeout, and send an actual HTTP request.
+        # We use the ASGI app directly so the mock applies to the gateway logic.
+        import gateway
+        import time
         pre_len = len(_read_actions_log())
-        protective_actions.reject_request(
-            reason="Guardrail CPU check exceeded SLA",
-            tier="free",
-        )
+        
+        async def _test_request():
+            # mock.patch requires synchronous sleep since check is run in to_thread
+            with mock.patch("gateway._guardrail_instance.check", side_effect=lambda x: time.sleep(0.2)):
+                async with httpx.AsyncClient(app=gateway.app, base_url="http://test") as client:
+                    response = await client.post(
+                        "/v1/chat/completions",
+                        json={
+                            "model": "benchmark",
+                            "messages": [{"role": "user", "content": "Hello"}],
+                            "tier": "free"
+                        }
+                    )
+                    assert response.status_code == 429, f"Expected 429, got {response.status_code}"
+                    
+        await _test_request()
+        
         new_actions = _actions_after(pre_len)
         hit = _find_action(new_actions, "reject_request")
         assert hit is not None, (
             f"[{failure_type}] Expected 'reject_request' after guardrail timeout sim, "
             f"got: {[r['action'] for r in new_actions]}"
         )
+        assert "Guardrail" in hit.get("reason", ""), "Reason must contain 'Guardrail'"
 
     elif failure_type == "engine_crash":
         # Call CircuitBreaker.record_failure() threshold times directly.

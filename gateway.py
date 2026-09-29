@@ -472,13 +472,15 @@ async def create_chat_completion(
             )
 
     except asyncio.TimeoutError:
-        # Step 4: Fail-open — guardrail timed out, proceed degraded.
+        # Phase 7a: Fail-closed — guardrail timed out, reject request.
         logger.warning(
-            "Guardrail timeout (%.0f ms) — degrading for prompt: %.50s",
+            "Guardrail timeout (%.0f ms) — rejecting for prompt: %.50s",
             _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
             last_user_message,
         )
-        degraded = True
+        from protective_actions import reject_request
+        body = reject_request(reason="Guardrail CPU check exceeded SLA", tier=request_body.tier)
+        return JSONResponse(status_code=429, content=body)
     except Exception:
         # Fail-open — any unexpected guardrail error, proceed degraded.
         logger.exception("Guardrail error — degrading.")

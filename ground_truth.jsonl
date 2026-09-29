@@ -1,0 +1,7 @@
+{"run_id": "5a13b4a7-1bdd-44b2-8e01-241222e82eec", "failure_type": "forced_oom", "root_cause": "GPU memory exhausted", "remediation": "reject_request or trigger_kv_eviction", "timestamp": 1790269896.98218}
+{"run_id": "89d634c2-81fd-483e-a614-799c074544b9", "failure_type": "kv_pool_exhaustion", "root_cause": "KV cache blocks fully allocated", "remediation": "trigger_kv_eviction", "timestamp": 1790269896.9846945}
+{"run_id": "7525d7de-a4e1-4355-84d4-b8e93697ec04", "failure_type": "colab_session_drop", "root_cause": "Ngrok tunnel unreachable", "remediation": "reroute_request", "timestamp": 1790269896.9879012}
+{"run_id": "dd4ad603-e3cc-479d-9883-07236aaf33ec", "failure_type": "guardrail_timeout", "root_cause": "Guardrail CPU check exceeded SLA", "remediation": "reroute_request or reject_request", "timestamp": 1790269896.9879012}
+{"run_id": "033e04d4-a43d-4132-9c8f-122698661c8b", "failure_type": "engine_crash", "root_cause": "Adapter consecutive failures hit threshold", "remediation": "force_circuit_breaker_open", "timestamp": 1790269896.9901989}
+{"run_id": "52f074be-208f-47ad-b4c1-9a8fed26cf8d", "failure_type": "queue_saturation", "root_cause": "Request queue at max depth", "remediation": "reject_request", "timestamp": 1790269896.9901989}
+{"run_id": "34ed1c4a-79ee-440e-a9bf-a818e1c67226", "failure_type": "guardrail_timeout", "root_cause": "Guardrail CPU check exceeded SLA", "remediation": "reroute_request or reject_request", "timestamp": 1790285470.3235776}

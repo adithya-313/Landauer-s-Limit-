@@ -17,6 +17,7 @@ Key behaviours:
 import asyncio
 import json
 import logging
+import os
 import random
 from typing import AsyncIterator, Dict, Any
 
@@ -44,9 +45,11 @@ class ColabAdapter:
 
     def __init__(
         self,
-        tunnel_url: str = DEFAULT_TUNNEL_URL,
+        tunnel_url: str = None,
         model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
     ):
+        if tunnel_url is None or tunnel_url == DEFAULT_TUNNEL_URL:
+            tunnel_url = os.environ.get("COLAB_BASE_URL", DEFAULT_TUNNEL_URL)
         self.tunnel_url = tunnel_url.rstrip("/")
         self.model_name = model_name
         self._client = httpx.AsyncClient(base_url=self.tunnel_url, timeout=300.0)
@@ -55,7 +58,7 @@ class ColabAdapter:
     # Public API
     # ------------------------------------------------------------------
 
-    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100) -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100, **kwargs) -> AsyncIterator[str]:
         # NOTE: This adapter does not currently use the tier parameter; it exists only to satisfy the shared BaseEngineAdapter contract.
         """
         Stream a completion from the Colab T4 instance.

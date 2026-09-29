@@ -335,12 +335,16 @@ class DeterministicSemanticCache:
             The cached response dict, or None for a cache miss.
         """
         # Step 1: Generate the deterministic lock.
+        t_start = time.monotonic()
         lock_string = self.extractor.generate_lock(messages)
 
         # Step 2: If lock is None, we cannot safely consult the cache.
         if lock_string is None:
+            lookup_latency_ms = (time.monotonic() - t_start) * 1000
+            self._log_event(False, None, lookup_latency_ms)
+
             logger.info(
-                "Cache check aborted: Unknown or ambiguous entity.",
+                "Cache check aborted: Unknown or ambiguous entity. lookup_latency_ms=%.2f", lookup_latency_ms
             )
             return None
 
@@ -352,12 +356,16 @@ class DeterministicSemanticCache:
                 break
 
         if not current_user_text:
+            lookup_latency_ms = (time.monotonic() - t_start) * 1000
+            self._log_event(False, None, lookup_latency_ms)
             logger.warning("Cache check: No user message to embed.")
             return None
 
         try:
             query_vector = self.embedding_function(current_user_text)
         except Exception:
+            lookup_latency_ms = (time.monotonic() - t_start) * 1000
+            self._log_event(False, None, lookup_latency_ms)
             logger.exception(
                 "Cache check: Embedding failed — failing open to miss.",
             )
@@ -365,12 +373,16 @@ class DeterministicSemanticCache:
 
         # Step 4: Search FAISS for the top 5 nearest neighbours.
         if self.index.ntotal == 0:
+            lookup_latency_ms = (time.monotonic() - t_start) * 1000
+            self._log_event(False, None, lookup_latency_ms)
             logger.debug("Cache check: Index is empty — miss.")
             return None
 
         try:
             distances, ids = self.index.search(query_vector, k=5)
         except Exception:
+            lookup_latency_ms = (time.monotonic() - t_start) * 1000
+            self._log_event(False, None, lookup_latency_ms)
             logger.exception(
                 "Cache check: FAISS search failed — failing open to miss.",
             )
@@ -401,20 +413,41 @@ class DeterministicSemanticCache:
             # Does the saved lock EXACTLY match our current lock?
             if saved_lock == lock_string and saved_response is not None:
                 # Cache Hit!
+                lookup_latency_ms = (time.monotonic() - t_start) * 1000
+                self._log_event(True, similarity, lookup_latency_ms)
                 logger.info(
-                    "Cache HIT: lock='%s', similarity=%.4f, id=%d.",
-                    lock_string, similarity, matched_id,
+                    "Cache HIT: lock='%s', similarity=%.4f, id=%d, lookup_latency_ms=%.2f.",
+                    lock_string, similarity, matched_id, lookup_latency_ms
                 )
                 # Move to end of LRU (mark as recently used).
                 self._lru_store.move_to_end(matched_id)
                 return saved_response
 
         # Step 6: No candidate passed both checks.
+        lookup_latency_ms = (time.monotonic() - t_start) * 1000
+        self._log_event(False, None, lookup_latency_ms)
         logger.info(
-            "Cache MISS: lock='%s' (no matching entry).",
-            lock_string,
+            "Cache MISS: lock='%s' (no matching entry), lookup_latency_ms=%.2f.",
+            lock_string, lookup_latency_ms
         )
         return None
+
+    def _log_event(self, hit: bool, similarity: Optional[float], latency_ms: float):
+        import json
+        import time
+        from pathlib import Path
+        try:
+            record = {
+                "timestamp": time.time(),
+                "hit": hit,
+                "similarity": similarity,
+                "lookup_latency_ms": latency_ms
+            }
+            with Path("semantic_cache_events.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.error("Failed to write to semantic_cache_events.jsonl: %s", e)
+
 
     async def insert(self, messages: List[Dict[str, str]], response: dict):
         """

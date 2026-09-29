@@ -89,7 +89,7 @@ class BatchEngine:
     def start(self):
         """Starts the background engine thread so it can begin processing requests continuously."""
         if getattr(self, '_metrics_server_started', False) == False:
-            start_http_server(port=8001)
+            start_http_server(port=8002)
             self._metrics_server_started = True
 
         if not self.running:
