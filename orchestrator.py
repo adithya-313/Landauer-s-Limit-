@@ -17,6 +17,7 @@ The CLI loops over DEFAULT_CONCURRENCY_LEVELS unless --concurrency is given.
 import argparse
 import asyncio
 import json
+import random
 import subprocess
 import sys
 import time
@@ -34,10 +35,21 @@ import httpx
 # loop over these. NOT passed into run_benchmark itself.
 DEFAULT_CONCURRENCY_LEVELS = [1, 10, 50, 100]
 
-GATEWAY_URL = "http://localhost:8000/v1/chat/completions"
+GATEWAY_URL = "http://127.0.0.1:8000/v1/chat/completions"
 
-# Default prompt used for benchmarking; short and deterministic.
-_BENCH_PROMPT = "Briefly describe the second law of thermodynamics in one sentence."
+# Pool of diverse prompts to prevent semantic cache from trivially swallowing all load test traffic.
+_BENCH_PROMPTS = [
+    "What is Docker?",
+    "How do I install Python 3.10 on Ubuntu?",
+    "Explain the difference between a process and a thread.",
+    "Write a hello world program in Rust.",
+    "What are the main features of Kubernetes?",
+    "Explain how a hash table works internally.",
+    "What is the time complexity of quicksort?",
+    "Tell me a short joke about programming.",
+    "How does asyncio work in Python?",
+    "Describe the lifecycle of a React component.",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -96,11 +108,11 @@ async def run_benchmark(
 
     async with httpx.AsyncClient(timeout=120.0) as session:
         while time.monotonic() < deadline:
-            async with sem:
-                task = asyncio.create_task(
-                    _send_single_request(session, engine, run_id, run_metadata, telemetry_path)
-                )
-                tasks.append(task)
+            await sem.acquire()
+            task = asyncio.create_task(
+                _send_and_release(session, engine, run_id, run_metadata, telemetry_path, sem)
+            )
+            tasks.append(task)
             # Tiny yield so the event loop can start tasks.
             await asyncio.sleep(0)
 
@@ -139,25 +151,28 @@ async def _send_single_request(
     telemetry_path : Path
         JSONL file to append this record to.
     """
+    prompt = random.choice(_BENCH_PROMPTS)
     payload = {
         "model": "benchmark",
-        "messages": [{"role": "user", "content": _BENCH_PROMPT}],
+        "messages": [{"role": "user", "content": prompt}],
         "engine": engine,
-        "tier": "free",
+        "tier": "premium",
         "max_tokens": 50,
     }
 
     t_start = time.monotonic()
     status_code = -1
     error_msg = None
+    ttft_seconds = None
 
     try:
-        response = await session.post(GATEWAY_URL, json=payload)
-        status_code = response.status_code
-        # Consume the full SSE body (do not buffer tokens for latency accuracy).
-        await response.aread()
+        async with session.stream("POST", GATEWAY_URL, json=payload) as response:
+            status_code = response.status_code
+            async for chunk in response.aiter_bytes():
+                if ttft_seconds is None and chunk:
+                    ttft_seconds = round(time.monotonic() - t_start, 4)
     except httpx.RequestError as exc:
-        error_msg = str(exc)
+        error_msg = str(exc) or type(exc).__name__
     finally:
         latency_ms = round((time.monotonic() - t_start) * 1000, 2)
 
@@ -167,6 +182,9 @@ async def _send_single_request(
         "status_code": status_code,
         "run_metadata": run_metadata,
     }
+    if ttft_seconds is not None:
+        record["client_ttft_seconds"] = ttft_seconds
+
     if error_msg:
         record["error"] = error_msg
 
@@ -175,6 +193,24 @@ async def _send_single_request(
             fh.write(json.dumps(record) + "\n")
     except OSError as exc:
         print(f"[orchestrator] telemetry write error: {exc}", file=sys.stderr)
+
+
+async def _send_and_release(
+    session: httpx.AsyncClient,
+    engine: str,
+    run_id: str,
+    run_metadata: dict,
+    telemetry_path: Path,
+    sem: asyncio.Semaphore,
+) -> None:
+    """
+    Wrapper to ensure the semaphore is held for the full duration of the request.
+    This prevents the loop from spawning unlimited background tasks.
+    """
+    try:
+        await _send_single_request(session, engine, run_id, run_metadata, telemetry_path)
+    finally:
+        sem.release()
 
 
 def _start_power_logger(run_id: str) -> subprocess.Popen:

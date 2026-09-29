@@ -24,7 +24,7 @@ import httpx
 logger = logging.getLogger("VLLMAdapter")
 
 # Default endpoint for a local vLLM server running in OpenAI-compatible mode.
-DEFAULT_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_BASE_URL = "http://127.0.0.1:8001/v1"
 # Minimum free VRAM in MB required before we attempt generation.
 MIN_VRAM_MB = 512
 
@@ -114,7 +114,7 @@ class VLLMAdapter:
     # Public API
     # ------------------------------------------------------------------
 
-    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100) -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100, **kwargs) -> AsyncIterator[str]:
         # NOTE: This adapter does not currently use the tier parameter; it exists only to satisfy the shared BaseEngineAdapter contract.
         """
         Stream a completion from the local vLLM server.

@@ -31,7 +31,7 @@ class CustomRuntimeAdapter:
     waits to catch the answer words one-by-one so it can send them back to the user.
     """
 
-    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100, messages: list[dict] = None) -> AsyncIterator[str]:
+    async def generate(self, prompt: str, tier: str = "free", max_tokens: int = 100, messages: list[dict] = None, **kwargs) -> AsyncIterator[str]:
         """
         Takes a single user's question, hands it to the background AI engine,
         and returns the answer piece by piece as a stream.

@@ -42,9 +42,11 @@ EMBEDDING_DIM: int = 384  # all-MiniLM-L6-v2 output dimension
 # Cosine similarity threshold above which a prompt is flagged as injection.
 SIMILARITY_THRESHOLD: float = 0.70
 
-# Hard timeout for a guardrail inference call (seconds).
-# Derived from runtime_bench.md: ONNX CPU p95 = 65.32 ms * 1.5 = 97.98 ms.
-GUARDRAIL_TIMEOUT: float = 0.098
+# Relaxed to 10.0s for development — the gateway now rejects (HTTP 429) on
+# guardrail timeout (fail-closed), so the original 97.98ms production value
+# would reject most requests on slow dev hardware.
+# Production derivation: ONNX CPU p95 = 65.32ms × 1.5 = 97.98ms (see runtime_bench.md).
+GUARDRAIL_TIMEOUT: float = 10.0
 
 # Padding/truncation length for tokenizer.
 MAX_SEQ_LEN: int = 128
