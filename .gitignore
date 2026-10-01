@@ -24,7 +24,6 @@ experiments/list_hf_cache.py
 vllm_env/
 
 # Phase 7 runtime outputs (generated, not source)
-telemetry_*.jsonl
 power_draw_*.log
 semantic_cache_events.jsonl
 actions_taken.jsonl
