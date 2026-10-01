@@ -1,5 +1,5 @@
 # Phase 8 — Comparison Dashboard Report
-Generated: 2026-10-01 07:53 UTC
+Generated: 2026-10-01 08:51 UTC
 
 > **Scope:** `agent_enabled=False` records only (baseline, no agent layer).
 > Dashboards 2 (Cache) and 3 (Drift) are implemented in a later commit.

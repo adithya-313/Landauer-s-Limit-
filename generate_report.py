@@ -698,14 +698,16 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
 
 def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix):
     """
-    Returns a self-contained HTML page with styled tables and inline SVG charts.
-    No external dependencies — all CSS is in a <style> block.
+    Returns a fully redesigned self-contained HTML dashboard.
+    iOS SF Pro font stack, dark theme, sidebar nav, animated KPIs,
+    grouped bar charts, circular SLO gauge, IntersectionObserver active nav.
+    No external dependencies.
     """
     now = datetime.now().isoformat(timespec="seconds")
     overall = dashboard_4["overall"]
 
     total_records = sum(r["request_count"] for r in dashboard_1)
-    engine_groups = len(dashboard_1)
+    engine_groups_count = len(dashboard_1)
     overall_p95_str = (_fmt(overall["observed_p95_ttft"]) + " s") if overall["observed_p95_ttft"] is not None else "N/A"
     total_err = sum(int(r["request_count"] * r["error_rate"]) for r in dashboard_1)
     overall_err_str = _fmt(total_err / total_records, ".1%") if total_records > 0 else "N/A"
@@ -713,50 +715,65 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
     # CSS stored as a plain string so curly braces need no escaping.
     css = (
         "*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }\n"
-        "body { background: #1a1a2e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; }\n"
-        "nav { position: fixed; top: 0; left: 0; right: 0; background: #0f3460; padding: 10px 20px; display: flex; gap: 20px; align-items: center; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }\n"
-        "nav a { color: #00b4d8; text-decoration: none; font-size: 13px; font-weight: 500; }\n"
-        "nav a:hover { color: #e0e0e0; }\n"
-        "nav .brand { color: #e0e0e0; font-weight: bold; margin-right: 10px; }\n"
-        "main { max-width: 1200px; margin: 0 auto; padding: 80px 20px 40px; }\n"
-        ".header { margin-bottom: 2rem; }\n"
-        ".header h1 { font-size: 1.8rem; color: #00b4d8; margin-bottom: 4px; }\n"
-        ".header .subtitle { color: #888; font-size: 13px; }\n"
-        ".stats-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 2rem; }\n"
-        ".stat-box { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 12px 18px; min-width: 160px; }\n"
-        ".stat-box .label { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }\n"
-        ".stat-box .value { color: #00b4d8; font-size: 1.4rem; font-weight: bold; margin-top: 2px; }\n"
-        ".card { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 24px; border: 1px solid #0f3460; }\n"
-        ".card h2 { color: #00b4d8; font-size: 1.1rem; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; }\n"
-        ".card h3 { color: #e0e0e0; font-size: 0.95rem; margin: 16px 0 10px; }\n"
+        "body { background: #0a0a0f; color: #f1f5f9; font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', BlinkMacSystemFont, sans-serif; font-size: 14px; line-height: 1.6; }\n"
+        "aside { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: #0d0d14; border-right: 1px solid #1e1e2e; padding: 24px 0; z-index: 100; overflow-y: auto; }\n"
+        ".sidebar-brand { padding: 0 20px 20px; border-bottom: 1px solid #1e1e2e; margin-bottom: 16px; }\n"
+        ".sidebar-brand h1 { font-size: 13px; font-weight: 700; color: #f1f5f9; letter-spacing: 0.3px; }\n"
+        ".sidebar-brand p { font-size: 11px; color: #475569; margin-top: 2px; }\n"
+        ".nav-link { display: block; padding: 8px 20px; color: #94a3b8; text-decoration: none; font-size: 13px; border-left: 2px solid transparent; transition: color 0.2s, border-left-color 0.2s; }\n"
+        ".nav-link:hover { color: #f1f5f9; }\n"
+        ".nav-link.active { color: #7c3aed; border-left-color: #7c3aed; }\n"
+        "main { margin-left: 220px; padding: 32px 32px 60px; max-width: 1200px; }\n"
+        ".page-header { margin-bottom: 28px; }\n"
+        ".page-header h1 { font-size: 1.6rem; font-weight: 700; color: #f1f5f9; }\n"
+        ".page-header p { font-size: 13px; color: #475569; margin-top: 4px; }\n"
+        ".kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }\n"
+        ".kpi { background: #111118; border: 1px solid #1e1e2e; border-top: 2px solid #7c3aed; border-radius: 10px; padding: 18px; transition: border-color 0.2s; animation: cardIn 0.4s ease-out both; }\n"
+        ".kpi:hover { border-color: #7c3aed; }\n"
+        ".kpi .icon { font-size: 18px; margin-bottom: 8px; }\n"
+        ".kpi .lbl { font-size: 11px; color: #475569; text-transform: uppercase; letter-spacing: 0.6px; }\n"
+        ".kpi .val { font-size: 1.6rem; font-weight: 700; color: #f1f5f9; margin-top: 4px; }\n"
+        ".kpi .sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }\n"
+        ".card { background: #111118; border: 1px solid #1e1e2e; border-top: 2px solid; border-image: linear-gradient(90deg, #7c3aed, #2563eb) 1; border-radius: 10px; padding: 24px; margin-bottom: 24px; animation: cardIn 0.4s ease-out both; }\n"
+        ".card h2 { font-size: 1rem; font-weight: 700; color: #f1f5f9; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #1e1e2e; }\n"
+        ".card h3 { font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin: 20px 0 10px; text-transform: uppercase; letter-spacing: 0.4px; }\n"
         ".table-wrap { overflow-x: auto; }\n"
         "table { width: 100%; border-collapse: collapse; font-size: 13px; }\n"
-        "th { background: #0f3460; color: #00b4d8; padding: 8px 10px; text-align: left; font-weight: 600; white-space: nowrap; }\n"
-        "td { padding: 7px 10px; border-bottom: 1px solid #0f3460; white-space: nowrap; }\n"
-        "td.num { text-align: right; font-variant-numeric: tabular-nums; }\n"
-        ".note { color: #888; font-size: 12px; margin-top: 8px; font-style: italic; }\n"
-        ".slo-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }\n"
-        ".slo-badge { background: #0f3460; border-radius: 6px; padding: 6px 14px; }\n"
-        ".slo-badge .lbl { font-size: 11px; color: #888; }\n"
-        ".slo-badge .val { font-size: 1.1rem; font-weight: bold; }\n"
-        "footer { text-align: center; color: #555; font-size: 12px; padding: 20px; border-top: 1px solid #0f3460; margin-top: 2rem; }\n"
+        "th { background: #1e1e2e; color: #94a3b8; padding: 10px 12px; text-align: left; font-weight: 600; white-space: nowrap; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }\n"
+        "tr:nth-child(even) td { background: #0f0f16; }\n"
+        "tr:nth-child(odd) td { background: #111118; }\n"
+        "tr:hover td { background: #1a1a2a; }\n"
+        "td { padding: 9px 12px; border-bottom: 1px solid #1a1a2a; white-space: nowrap; color: #f1f5f9; }\n"
+        "td.num { text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums; }\n"
+        ".note { color: #475569; font-size: 12px; margin-top: 10px; font-style: italic; }\n"
+        ".slo-badges { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }\n"
+        ".slo-badge { background: #1e1e2e; border: 1px solid #2a2a3a; border-radius: 8px; padding: 10px 16px; }\n"
+        ".slo-badge .lbl { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }\n"
+        ".slo-badge .val { font-size: 1.15rem; font-weight: 700; margin-top: 2px; }\n"
+        ".bar-track { background: #1e1e2e; border-radius: 4px; height: 10px; margin: 4px 0 8px; overflow: hidden; }\n"
+        ".bar-fill { height: 100%; border-radius: 4px; width: 0; transition: width 1s ease-out; }\n"
+        ".cache-row { margin-bottom: 12px; }\n"
+        ".cache-row .clbl { font-size: 12px; color: #94a3b8; margin-bottom: 4px; display: flex; justify-content: space-between; }\n"
+        "footer { margin-left: 220px; text-align: center; color: #475569; font-size: 11px; padding: 24px 32px; border-top: 1px solid #1e1e2e; }\n"
+        "@keyframes cardIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }\n"
+        "@keyframes barGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }\n"
+        ".bar-anim { transform-box: fill-box; transform-origin: 50% 100%; animation: barGrow 0.6s ease-out both; }\n"
+        "@media (max-width: 900px) { aside { display: none; } main { margin-left: 0; } footer { margin-left: 0; } .kpi-grid { grid-template-columns: repeat(2, 1fr); } }\n"
     )
 
     def _ec(rate):
-        """Error-rate cell color."""
         if rate < 0.05:
-            return "#2ecc71"
+            return "#10b981"
         elif rate < 0.20:
-            return "#f39c12"
-        return "#e74c3c"
+            return "#f59e0b"
+        return "#ef4444"
 
     # --- Dashboard 1 table rows ---
     d1_rows = ""
     for i, row in enumerate(dashboard_1):
-        bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
         ec = _ec(row["error_rate"])
         d1_rows += (
-            f'<tr style="background:{bg}">'
+            f'<tr>'
             f"<td>{row['engine']}</td><td>{row['quantization']}</td>"
             f'<td class="num">{row["concurrency"]}</td>'
             f'<td class="num">{row["request_count"]}</td>'
@@ -769,40 +786,78 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
             "</tr>\n"
         )
 
-    # --- Dashboard 1 bar chart: mean latency per engine group ---
-    valid_bars = [
-        (f"{r['engine'][:14]} c={r['concurrency']}", r["mean_latency_ms"])
-        for r in dashboard_1 if r["mean_latency_ms"] is not None
-    ]
-    if valid_bars:
-        max_val = max(v for _, v in valid_bars)
-        bh, label_w, bar_area = 28, 170, 360
-        cw = label_w + bar_area + 80
-        ch = len(valid_bars) * (bh + 6) + 30
-        bars = ""
-        for i, (lbl, val) in enumerate(valid_bars):
-            y = 20 + i * (bh + 6)
-            bw = int((val / max_val) * bar_area) if max_val > 0 else 0
-            bars += (
-                f'<text x="{label_w - 6}" y="{y + bh // 2 + 5}" text-anchor="end" fill="#e0e0e0" font-size="11">{lbl}</text>'
-                f'<rect x="{label_w}" y="{y}" width="{bw}" height="{bh}" fill="#00b4d8" rx="3"/>'
-                f'<text x="{label_w + bw + 6}" y="{y + bh // 2 + 5}" fill="#e0e0e0" font-size="11">{_fmt(val, ".0f")} ms</text>'
+    # --- Dashboard 1 grouped bar chart: p50 and p95 latency per engine ---
+    engine_labels = []
+    p50_vals = []
+    p95_vals = []
+    for r in dashboard_1:
+        label = f"{r['engine'][:12]} c={r['concurrency']}"
+        engine_labels.append(label)
+        p50_vals.append(r["mean_latency_ms"] or 0)
+        p95_vals.append(r["p95_latency_ms"] or 0)
+
+    if engine_labels:
+        max_val = max(max(p50_vals), max(p95_vals), 1)
+        n = len(engine_labels)
+        label_h = 60
+        chart_h = 200
+        bar_w = 18
+        group_w = 55
+        padding_l = 50
+        total_w = padding_l + n * group_w + 40
+        total_h = chart_h + label_h + 30
+        svg_bars = ""
+        for i, lbl in enumerate(engine_labels):
+            gx = padding_l + i * group_w
+            b50h = int((p50_vals[i] / max_val) * chart_h)
+            b95h = int((p95_vals[i] / max_val) * chart_h)
+            delay50 = 0.1 + i * 0.08
+            delay95 = 0.15 + i * 0.08
+            svg_bars += (
+                f'<rect class="bar-anim" x="{gx}" y="{chart_h - b50h + 10}" width="{bar_w}" height="{b50h}" fill="#2563eb" rx="2" style="animation-delay:{delay50:.2f}s"/>'
+                f'<rect class="bar-anim" x="{gx + bar_w + 2}" y="{chart_h - b95h + 10}" width="{bar_w}" height="{b95h}" fill="#7c3aed" rx="2" style="animation-delay:{delay95:.2f}s"/>'
+                f'<text x="{gx + bar_w}" y="{chart_h + 26}" text-anchor="middle" fill="#94a3b8" font-size="9" transform="rotate(-30,{gx + bar_w},{chart_h + 26})">{lbl}</text>'
             )
+        y_labels = ""
+        for tick in [0, 25, 50, 75, 100]:
+            y = 10 + chart_h - int(tick / 100 * chart_h)
+            ms_val = int(tick / 100 * max_val)
+            y_labels += (
+                f'<line x1="{padding_l - 4}" y1="{y}" x2="{padding_l + n * group_w + 20}" y2="{y}" stroke="#1e1e2e" stroke-width="1"/>'
+                f'<text x="{padding_l - 8}" y="{y + 4}" text-anchor="end" fill="#475569" font-size="9">{ms_val}</text>'
+            )
+        legend = (
+            f'<rect x="{padding_l}" y="{total_h - 14}" width="10" height="10" fill="#2563eb" rx="2"/>'
+            f'<text x="{padding_l + 14}" y="{total_h - 5}" fill="#94a3b8" font-size="10">p50 latency (ms)</text>'
+            f'<rect x="{padding_l + 110}" y="{total_h - 14}" width="10" height="10" fill="#7c3aed" rx="2"/>'
+            f'<text x="{padding_l + 124}" y="{total_h - 5}" fill="#94a3b8" font-size="10">p95 latency (ms)</text>'
+        )
         d1_chart = (
-            '<div style="overflow-x:auto;margin-top:1rem">'
-            f'<svg viewBox="0 0 {cw} {ch}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:{cw}px">'
-            f'<text x="{cw // 2}" y="14" text-anchor="middle" fill="#00b4d8" font-size="12" font-weight="bold">Mean Latency by Engine Group (ms)</text>'
-            f"{bars}"
+            '<div style="overflow-x:auto;margin-top:16px">'
+            f'<svg viewBox="0 0 {total_w} {total_h + 20}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:{total_w}px">'
+            f'{y_labels}{svg_bars}{legend}'
             "</svg></div>"
         )
     else:
         d1_chart = ""
 
+    # --- Throughput sparkline ---
+    spark_items = [(f"{r['engine'][:14]} c={r['concurrency']}", r["throughput_50tok_tps"] or 0) for r in dashboard_1]
+    max_tps = max((v for _, v in spark_items), default=1) or 1
+    spark_html = ""
+    for lbl, tps in spark_items:
+        pct = int(tps / max_tps * 100)
+        spark_html += (
+            f'<div class="cache-row"><div class="clbl"><span>{lbl}</span><span style="color:#0891b2;font-weight:600">{tps:.1f} tps</span></div>'
+            f'<div class="bar-track"><div class="bar-fill" data-w="{pct}" style="background:#0891b2"></div></div></div>\n'
+        )
+
     # --- Dashboard 2A ---
     if dashboard_2_semantic:
         s = dashboard_2_semantic
+        sem_hit_pct = int((s["hit_rate"] or 0) * 100)
         rows_2a = ""
-        for i, (lbl, val) in enumerate([
+        for lbl, val in [
             ("Total Lookups", str(s["total_lookups"])),
             ("Hit Count", str(s["hit_count"])),
             ("Miss Count", str(s["miss_count"])),
@@ -811,21 +866,23 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
             ("p95 Lookup Latency", _fmt(s["p95_lookup_latency_ms"], ".2f") + " ms"),
             ("Mean Latency (Hits)", _fmt(s["mean_hit_latency_ms"], ".2f") + " ms"),
             ("Mean Latency (Misses)", _fmt(s["mean_miss_latency_ms"], ".2f") + " ms"),
-        ]):
-            bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
-            rows_2a += f'<tr style="background:{bg}"><td>{lbl}</td><td class="num">{val}</td></tr>\n'
-        d2a = (
-            "<table><tr><th>Metric</th><th>Value</th></tr>\n" + rows_2a + "</table>\n"
-            '<p class="note">Source: semantic_cache_events.jsonl</p>'
+        ]:
+            rows_2a += f'<tr><td>{lbl}</td><td class="num">{val}</td></tr>\n'
+        d2a_table = "<table><tr><th>Metric</th><th>Value</th></tr>\n" + rows_2a + "</table>\n"
+        d2a_bar = (
+            f'<div class="cache-row" style="margin-top:12px"><div class="clbl"><span>Semantic Hit Rate</span><span style="color:#0891b2;font-weight:600">{_fmt(s["hit_rate"], ".1%")}</span></div>'
+            f'<div class="bar-track"><div class="bar-fill" data-w="{sem_hit_pct}" style="background:#0891b2"></div></div></div>'
         )
+        d2a = d2a_table + d2a_bar + '<p class="note">Source: semantic_cache_events.jsonl</p>'
     else:
         d2a = '<p class="note">Data not available - semantic_cache_events.jsonl not found.</p>'
 
     # --- Dashboard 2B ---
     if dashboard_2_prefix:
         p = dashboard_2_prefix
+        pfx_hit_pct = int((p["hit_rate"] or 0) * 100)
         rows_2b = ""
-        for i, (lbl, val) in enumerate([
+        for lbl, val in [
             ("Total Requests", str(p["total_requests"])),
             ("Prefix Hit Count", str(p["hit_count"])),
             ("Prefix Miss Count", str(p["miss_count"])),
@@ -834,54 +891,63 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
             ("Mean TTFT (Hits)", _fmt(p["mean_ttft_hit"], ".3f") + " s"),
             ("Mean TTFT (Misses)", _fmt(p["mean_ttft_miss"], ".3f") + " s"),
             ("TTFT Reduction", _fmt(p["ttft_reduction_pct"], ".1f") + "%"),
-        ]):
-            bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
-            rows_2b += f'<tr style="background:{bg}"><td>{lbl}</td><td class="num">{val}</td></tr>\n'
-        d2b = (
-            "<table><tr><th>Metric</th><th>Value</th></tr>\n" + rows_2b + "</table>\n"
-            '<p class="note">Source: batch_events.jsonl (prefix_stats sub-records)</p>'
+        ]:
+            rows_2b += f'<tr><td>{lbl}</td><td class="num">{val}</td></tr>\n'
+        d2b_table = "<table><tr><th>Metric</th><th>Value</th></tr>\n" + rows_2b + "</table>\n"
+        d2b_bar = (
+            f'<div class="cache-row" style="margin-top:12px"><div class="clbl"><span>Prefix Hit Rate</span><span style="color:#7c3aed;font-weight:600">{_fmt(p["hit_rate"], ".1%")}</span></div>'
+            f'<div class="bar-track"><div class="bar-fill" data-w="{pfx_hit_pct}" style="background:#7c3aed"></div></div></div>'
         )
+        d2b = d2b_table + d2b_bar + '<p class="note">Source: batch_events.jsonl (prefix_stats sub-records)</p>'
     else:
         d2b = '<p class="note">Data not available - batch_events.jsonl not found or contains no prefix_stats.</p>'
 
     # --- Dashboard 4 table rows ---
     d4_rows = ""
-    for i, row in enumerate(dashboard_4["by_group"]):
-        bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
-        sc = "#2ecc71" if row["slo_met"] else "#e74c3c"
-        sl = "PASS" if row["slo_met"] else "MISS"
+    for row in dashboard_4["by_group"]:
+        sc = "#10b981" if row["slo_met"] else "#ef4444"
+        sl = "&#10003;" if row["slo_met"] else "&#10007;"
         d4_rows += (
-            f'<tr style="background:{bg}">'
+            f'<tr>'
             f"<td>{row['engine']}</td><td>{row['quantization']}</td>"
             f'<td class="num">{row["concurrency"]}</td>'
             f'<td class="num">{_fmt(row["p95_ttft"])}</td>'
             f'<td class="num">{row["slo_target"]}</td>'
-            f'<td class="num" style="color:{sc};font-weight:bold">{sl}</td>'
+            f'<td class="num" style="color:{sc};font-weight:bold;font-size:16px">{sl}</td>'
             "</tr>\n"
         )
 
-    slo_color = "#2ecc71" if overall["slo_met"] else "#e74c3c"
+    slo_color = "#10b981" if overall["slo_met"] else "#ef4444"
     slo_label = "MET" if overall["slo_met"] else "MISSED"
 
-    # --- Error budget gauge SVG ---
+    # --- Circular SLO gauge SVG ---
     consumed = (overall["error_budget_consumed"] or 0.0) * 100
-    bar_fill = min(consumed, 100)
-    gc = "#2ecc71" if consumed < 50 else ("#f39c12" if consumed < 90 else "#e74c3c")
+    consumed_clamped = min(consumed, 100)
+    gc = "#10b981" if consumed_clamped < 50 else ("#f59e0b" if consumed_clamped < 90 else "#ef4444")
+    r_val = 78
+    circ = 2 * 3.14159 * r_val
+    dash_used = circ * consumed_clamped / 100
     gauge = (
-        f'<p style="color:#e0e0e0;margin:8px 0 4px">Error Budget: {consumed:.1f}% consumed ({100 - consumed:.1f}% remaining)</p>'
-        '<svg viewBox="0 0 400 40" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:400px">'
-        '<rect x="0" y="10" width="400" height="20" fill="#0f3460" rx="4"/>'
-        f'<rect x="0" y="10" width="{bar_fill * 4:.1f}" height="20" fill="{gc}" rx="4"/>'
-        f'<text x="200" y="25" text-anchor="middle" fill="white" font-size="12" font-weight="bold">{consumed:.1f}% consumed</text>'
+        '<div style="display:flex;align-items:center;gap:24px;margin:12px 0">'
+        '<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="width:140px;height:140px">'
+        f'<circle cx="100" cy="100" r="{r_val}" fill="none" stroke="#1e1e2e" stroke-width="14"/>'
+        f'<circle cx="100" cy="100" r="{r_val}" fill="none" stroke="{gc}" stroke-width="14"'
+        f' stroke-dasharray="{dash_used:.1f} {circ:.1f}" stroke-linecap="round"'
+        f' transform="rotate(-90 100 100)"/>'
+        f'<text x="100" y="96" text-anchor="middle" fill="#f1f5f9" font-size="22" font-weight="700">{consumed_clamped:.0f}%</text>'
+        f'<text x="100" y="116" text-anchor="middle" fill="#475569" font-size="11">consumed</text>'
         "</svg>"
+        f'<div><p style="color:#94a3b8;font-size:13px">Error budget</p>'
+        f'<p style="color:{gc};font-size:1.4rem;font-weight:700">{100 - consumed_clamped:.1f}% remaining</p>'
+        f'<p style="color:#475569;font-size:12px;margin-top:4px">{consumed:.1f}% of budget consumed</p></div>'
+        "</div>"
     )
 
-    # --- Appendix A1 rows (cap at 50 for HTML readability) ---
+    # --- Appendix A1 rows (cap at 50) ---
     a1_rows = ""
-    for i, row in enumerate(appendix["a1"][:50]):
-        bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
+    for row in appendix["a1"][:50]:
         a1_rows += (
-            f'<tr style="background:{bg}">'
+            f'<tr>'
             f'<td class="num">{_fmt(row["timestamp"], ".2f")}</td>'
             f'<td class="num">{row["allocated_blocks"]}</td>'
             f'<td class="num">{row["free_blocks"]}</td>'
@@ -892,10 +958,9 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
 
     # --- Appendix A2 rows ---
     a2_rows = ""
-    for i, row in enumerate(appendix["a2"][:50]):
-        bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
+    for row in appendix["a2"][:50]:
         a2_rows += (
-            f'<tr style="background:{bg}">'
+            f'<tr>'
             f'<td class="num">{_fmt(row["timestamp"], ".2f")}</td>'
             f'<td class="num">{row["active_requests"]}</td>'
             f'<td class="num">{row["tokens_processed"]}</td>'
@@ -903,96 +968,130 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         )
     a2_note = f" (first 50 of {len(appendix['a2'])})" if len(appendix["a2"]) > 50 else ""
 
+    js = (
+        "document.querySelectorAll('.bar-fill[data-w]').forEach(el=>{"
+        "setTimeout(()=>{el.style.width=el.dataset.w+'%'},100)});\n"
+        "document.querySelectorAll('.kpi .val[data-v]').forEach(el=>{"
+        "const end=parseFloat(el.dataset.v),isInt=Number.isInteger(end),dec=el.dataset.dec||'0';"
+        "const t0=performance.now();"
+        "const step=ts=>{const p=Math.min((ts-t0)/800,1),v=end*p;"
+        "el.textContent=isInt?Math.round(v):v.toFixed(dec);"
+        "if(p<1)requestAnimationFrame(step)};requestAnimationFrame(step)});\n"
+        "const obs=new IntersectionObserver(es=>es.forEach(e=>{"
+        "document.querySelectorAll('.nav-link').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+e.target.id&&e.isIntersecting))"
+        "}),{threshold:0.3});\n"
+        "document.querySelectorAll('section[id]').forEach(s=>obs.observe(s));\n"
+    )
+
     return (
         "<!DOCTYPE html>\n"
         '<html lang="en">\n'
         "<head>\n"
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        "<title>Landauer's Limit - Phase 8 Telemetry Dashboard</title>\n"
+        "<title>Landauer's Limit - Phase 8 Telemetry</title>\n"
         f"<style>\n{css}</style>\n"
         "</head>\n"
         "<body>\n"
-        "<nav>\n"
-        "  <span class=\"brand\">Landauer's Limit</span>\n"
-        '  <a href="#dashboard-1">Dashboard 1</a>\n'
-        '  <a href="#dashboard-2">Dashboard 2</a>\n'
-        '  <a href="#dashboard-4">Dashboard 4</a>\n'
-        '  <a href="#appendix">Appendix</a>\n'
-        "</nav>\n"
+        "<aside>\n"
+        "  <div class=\"sidebar-brand\">\n"
+        "    <h1>Landauer's Limit</h1>\n"
+        "    <p>Phase 8 Telemetry</p>\n"
+        "  </div>\n"
+        '  <a class="nav-link" href="#overview">Overview</a>\n'
+        '  <a class="nav-link" href="#dashboard-1">Dashboard 1</a>\n'
+        '  <a class="nav-link" href="#dashboard-2">Dashboard 2</a>\n'
+        '  <a class="nav-link" href="#dashboard-4">Dashboard 4</a>\n'
+        '  <a class="nav-link" href="#appendix">Appendix</a>\n'
+        '  <a class="nav-link" href="#data-notes">Data Notes</a>\n'
+        "</aside>\n"
         "<main>\n"
-        "  <div class=\"header\">\n"
-        "    <h1>Landauer's Limit - Phase 8 Telemetry Dashboard</h1>\n"
-        f'    <div class="subtitle">Generated: {now}</div>\n'
+        '  <div class="page-header">\n'
+        "    <h1>Phase 8 Telemetry Dashboard</h1>\n"
+        f'    <p>Generated {now}</p>\n'
         "  </div>\n"
-        '  <div class="stats-row">\n'
-        f'    <div class="stat-box"><div class="label">Total Records</div><div class="value">{total_records}</div></div>\n'
-        f'    <div class="stat-box"><div class="label">Engine Groups</div><div class="value">{engine_groups}</div></div>\n'
-        f'    <div class="stat-box"><div class="label">Overall p95 TTFT</div><div class="value">{overall_p95_str}</div></div>\n'
-        f'    <div class="stat-box"><div class="label">Overall Error Rate</div><div class="value">{overall_err_str}</div></div>\n'
-        "  </div>\n"
-        '  <div class="card" id="dashboard-1">\n'
-        "    <h2>Dashboard 1: Compute Engine &amp; Quantization Matrix</h2>\n"
-        '    <div class="table-wrap"><table>\n'
-        "      <tr><th>Engine</th><th>Quant</th><th>Concurrency</th><th>Requests</th>"
+        '  <section id="overview">\n'
+        '    <div class="kpi-grid">\n'
+        f'      <div class="kpi" style="animation-delay:0s"><div class="icon">&#9672;</div><div class="lbl">Total Records</div><div class="val" data-v="{total_records}">{total_records}</div><div class="sub">baseline requests</div></div>\n'
+        f'      <div class="kpi" style="animation-delay:0.1s"><div class="icon">&#11041;</div><div class="lbl">Engine Groups</div><div class="val" data-v="{engine_groups_count}">{engine_groups_count}</div><div class="sub">configurations</div></div>\n'
+        f'      <div class="kpi" style="animation-delay:0.2s"><div class="icon">&#9650;</div><div class="lbl">Overall p95 TTFT</div><div class="val">{overall_p95_str}</div><div class="sub">time-to-first-token</div></div>\n'
+        f'      <div class="kpi" style="animation-delay:0.3s"><div class="icon">&#9678;</div><div class="lbl">Error Rate</div><div class="val">{overall_err_str}</div><div class="sub">across all engines</div></div>\n'
+        "    </div>\n"
+        "  </section>\n"
+        '  <section id="dashboard-1">\n'
+        '    <div class="card">\n'
+        "      <h2>Dashboard 1 - Compute Engine &amp; Quantization Matrix</h2>\n"
+        '      <div class="table-wrap"><table>\n'
+        "        <tr><th>Engine</th><th>Quant</th><th>Concurrency</th><th>Requests</th>"
         "<th>Mean TTFT (s)</th><th>p95 TTFT (s)</th>"
         "<th>Mean Lat (ms)</th><th>p95 Lat (ms)</th>"
         '<th title="throughput_50tok_tps">Throughput (50-tok)</th><th>Error Rate</th></tr>\n'
-        f"      {d1_rows}"
-        "    </table></div>\n"
-        f"    {d1_chart}\n"
-        '    <p class="note">Throughput estimated as max_tokens=50 / latency_s. ITL not recorded in telemetry.</p>\n'
-        "  </div>\n"
-        '  <div class="card" id="dashboard-2">\n'
-        "    <h2>Dashboard 2: Semantic Cache &amp; Prefix Cache Efficiency</h2>\n"
-        "    <h3>2A: Semantic Cache (Phase 4 - FAISS Dual-Lock)</h3>\n"
-        f'    <div class="table-wrap">{d2a}</div>\n'
-        "    <h3>2B: Prefix Cache (Phase 6d - KV Block Hash Reuse)</h3>\n"
-        f'    <div class="table-wrap">{d2b}</div>\n'
-        "  </div>\n"
-        '  <div class="card" id="dashboard-4">\n'
-        "    <h2>Dashboard 4: SLA / Error Budget</h2>\n"
-        '    <div class="slo-row">\n'
-        f'      <div class="slo-badge"><div class="lbl">Sample Count</div><div class="val">{overall["sample_count"]}</div></div>\n'
-        f'      <div class="slo-badge"><div class="lbl">Observed p95 TTFT</div><div class="val">{_fmt(overall["observed_p95_ttft"])} s</div></div>\n'
-        f'      <div class="slo-badge"><div class="lbl">SLO Target</div><div class="val">{overall["slo_target"]} s</div></div>\n'
-        f'      <div class="slo-badge"><div class="lbl">SLO Status</div>'
-        f'<div class="val" style="color:{slo_color}">{slo_label}</div></div>\n'
+        f"        {d1_rows}"
+        "      </table></div>\n"
+        f"      {d1_chart}\n"
+        "      <h3>Throughput Comparison</h3>\n"
+        f"      {spark_html}\n"
+        '      <p class="note">Throughput estimated as max_tokens=50 / latency_s. ITL not recorded in telemetry.</p>\n'
         "    </div>\n"
-        f"    {gauge}\n"
-        '    <h3 style="margin-top:1.2rem">Per-Combination Attainment</h3>\n'
-        '    <div class="table-wrap"><table>\n'
-        "      <tr><th>Engine</th><th>Quant</th><th>Concurrency</th>"
+        "  </section>\n"
+        '  <section id="dashboard-2">\n'
+        '    <div class="card">\n'
+        "      <h2>Dashboard 2 - Semantic Cache &amp; Prefix Cache Efficiency</h2>\n"
+        "      <h3>2A: Semantic Cache (Phase 4 - FAISS Dual-Lock)</h3>\n"
+        f'      <div class="table-wrap">{d2a}</div>\n'
+        "      <h3>2B: Prefix Cache (Phase 6d - KV Block Hash Reuse)</h3>\n"
+        f'      <div class="table-wrap">{d2b}</div>\n'
+        "    </div>\n"
+        "  </section>\n"
+        '  <section id="dashboard-4">\n'
+        '    <div class="card">\n'
+        "      <h2>Dashboard 4 - SLO &amp; Error Budget</h2>\n"
+        '      <div class="slo-badges">\n'
+        f'        <div class="slo-badge"><div class="lbl">Sample Count</div><div class="val">{overall["sample_count"]}</div></div>\n'
+        f'        <div class="slo-badge"><div class="lbl">Observed p95 TTFT</div><div class="val">{_fmt(overall["observed_p95_ttft"])} s</div></div>\n'
+        f'        <div class="slo-badge"><div class="lbl">SLO Target</div><div class="val">{overall["slo_target"]} s</div></div>\n'
+        f'        <div class="slo-badge"><div class="lbl">SLO Status</div><div class="val" style="color:{slo_color}">{slo_label}</div></div>\n'
+        "      </div>\n"
+        f"      {gauge}\n"
+        "      <h3>Per-Combination Attainment</h3>\n"
+        '      <div class="table-wrap"><table>\n'
+        "        <tr><th>Engine</th><th>Quant</th><th>Concurrency</th>"
         "<th>p95 TTFT (s)</th><th>SLO Target (s)</th><th>Met?</th></tr>\n"
-        f"      {d4_rows}"
-        "    </table></div>\n"
-        f'    <p class="note">{overall["free_tier_note"]}</p>\n'
-        "  </div>\n"
-        '  <div class="card" id="appendix">\n'
-        "    <h2>Appendix</h2>\n"
-        f"    <h3>A1: KV Fragmentation Over Time (Phase 6c proof data){a1_note}</h3>\n"
-        '    <div class="table-wrap"><table>\n'
-        "      <tr><th>Timestamp (unix)</th><th>Allocated Blocks</th>"
+        f"        {d4_rows}"
+        "      </table></div>\n"
+        f'      <p class="note">{overall["free_tier_note"]}</p>\n'
+        "    </div>\n"
+        "  </section>\n"
+        '  <section id="appendix">\n'
+        '    <div class="card">\n'
+        "      <h2>Appendix</h2>\n"
+        f"      <h3>A1: KV Fragmentation Over Time (Phase 6c proof data){a1_note}</h3>\n"
+        '      <div class="table-wrap"><table>\n'
+        "        <tr><th>Timestamp (unix)</th><th>Allocated Blocks</th>"
         "<th>Free Blocks</th><th>Fragmentation Ratio</th></tr>\n"
-        f"      {a1_rows}"
-        "    </table></div>\n"
-        f'    <h3 style="margin-top:1.2rem">A2: Batch Size Over Time (Phase 6b proof data){a2_note}</h3>\n'
-        '    <div class="table-wrap"><table>\n'
-        "      <tr><th>Timestamp (unix)</th><th>Active Requests</th><th>Tokens Processed</th></tr>\n"
-        f"      {a2_rows}"
-        "    </table></div>\n"
-        "  </div>\n"
+        f"        {a1_rows}"
+        "      </table></div>\n"
+        f"      <h3>A2: Batch Size Over Time (Phase 6b proof data){a2_note}</h3>\n"
+        '      <div class="table-wrap"><table>\n'
+        "        <tr><th>Timestamp (unix)</th><th>Active Requests</th><th>Tokens Processed</th></tr>\n"
+        f"        {a2_rows}"
+        "      </table></div>\n"
+        "    </div>\n"
+        "  </section>\n"
+        '  <section id="data-notes">\n'
+        '    <div class="card" style="border-image:none;border-top:2px solid #f59e0b">\n'
+        '      <h2 style="color:#f59e0b">Data Notes</h2>\n'
+        '      <ul style="padding-left:1.4em;color:#94a3b8;line-height:1.9">\n'
+        "        <li>Throughput is estimated at max_tokens=50 per request &mdash; reflects benchmark conditions, not open-ended generation.</li>\n"
+        "        <li>custom_runtime TTFT shows N/A because 85&ndash;95% of those runs returned errors with no successful response to measure.</li>\n"
+        "        <li>Semantic cache data: n=69 events. Prefix cache data: n=13 events. These are small samples &mdash; treat as indicative.</li>\n"
+        "        <li>All numbers are computed directly from raw telemetry JSONL files. No values are fabricated or estimated beyond what is noted above.</li>\n"
+        "      </ul>\n"
+        "    </div>\n"
+        "  </section>\n"
         "</main>\n"
-        "<footer>Generated by generate_report.py - Phase 8 Telemetry Analysis</footer>\n"
-        "  <div class=\"card\" id=\"data-notes\" style=\"border-left:4px solid #f39c12;margin:0 auto 24px;max-width:1200px\">\n"
-        "    <h2 style=\"color:#f39c12\">Data Notes</h2>\n"
-        "    <ul style=\"padding-left:1.4em;color:#e0e0e0;line-height:1.8\">\n"
-        "      <li>Throughput is estimated at max_tokens=50 per request &mdash; reflects benchmark conditions, not open-ended generation.</li>\n"
-        "      <li>custom_runtime TTFT shows N/A because 85&ndash;95% of those runs returned errors with no successful response to measure.</li>\n"
-        "      <li>Semantic cache data: n=69 events. Prefix cache data: n=13 events. These are small samples &mdash; treat as indicative.</li>\n"
-        "      <li>All numbers are computed directly from raw telemetry JSONL files. No values are fabricated or estimated beyond what is noted above.</li>\n"
-        "    </ul>\n"
-        "  </div>\n"
+        f"<footer>Landauer's Limit &middot; Phase 8 Telemetry &middot; Generated {now} &middot; {total_records} records &middot; {engine_groups_count} engines</footer>\n"
+        f"<script>{js}</script>\n"
         "</body>\n"
         "</html>"
     )
