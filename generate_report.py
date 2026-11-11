@@ -26,6 +26,7 @@ No external libraries required — stdlib only: json, os, glob, statistics,
 datetime, pathlib, html.
 """
 
+import argparse
 import glob
 import html
 import json
@@ -61,21 +62,19 @@ DRIFT_NOTES = [
         "Source: drift_eval_results.jsonl (written by drift_eval.py)."
     ),
     (
-        "custom_runtime invalidity: custom_runtime outputs are marked INVALID due to severe output "
-        "corruption (an engine bug in custom batching/KV-cache logic caused degenerate generation with "
-        "repetitive stuttering such as 'haveot', 'tootot', 'havehavehave...', and chained commas). The "
-        "prefix-cache-off control run in earlier benchmarks suffered the same corruption. Because the "
-        "degradation is caused by runtime engine malfunction rather than standard 4-bit quantization error, "
-        "its score (0.6071) must NOT be read as a quantization-quality result."
+        "custom_runtime invalidity: custom_runtime outputs are marked INVALID / not scored ("
+        "corrupted output, suspected engine bug — see note), excluded from the comparison. The output "
+        "degenerates into repeated tokens (such as 'haveot', 'tootot', 'havehavehave...', and chained commas), "
+        "and a control run with the prefix cache off was also corrupted. Because the degradation is caused by "
+        "runtime engine malfunction rather than standard 4-bit quantization error, its score must not read as a "
+        "quantization-quality result."
     ),
     (
-        "Metric limits: Cosine similarity of all-MiniLM-L6-v2 embeddings penalizes length differences "
-        "heavily between reference and candidate outputs. For example, on prompt 5YspPQK_126 all engines answered "
-        "only 'True' while the reference generated a full explanatory paragraph, resulting in a score of 0.0460 "
-        "despite a correct answer. With n=20, each individual prompt accounts for 5% of the mean."
+        "Metric limits: MiniLM cosine similarity penalizes length differences (the prompt where every "
+        "engine answered only 'True' scored 0.046); n=20, so each prompt is 5% of a mean."
     ),
     (
-        "Parity confirmation: Confirmed that the fp16 reference and all candidate engines used the exact "
+        "Configuration parity: Confirmed that the fp16 reference and all candidate engines used the exact "
         "same chat template (Qwen2.5 chat template), no extra system prompt beyond the default "
         "('You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'), and the same max_tokens=128."
     ),
@@ -616,14 +615,16 @@ def compute_dashboard_3(results_path=DRIFT_RESULTS_PATH):
         recs = by_engine[engine]
         sims = [r["cosine_similarity"] for r in recs]
         lowest = sorted(recs, key=lambda r: (r["cosine_similarity"], str(r.get("prompt_id"))))[:3]
+        is_invalid = (engine == "custom_runtime")
         display_engine = (
-            f"{engine} (INVALID – corrupted output, engine bug suspected, see note)"
-            if engine == "custom_runtime"
+            f"{engine} (INVALID – corrupted output, suspected engine bug — see note)"
+            if is_invalid
             else engine
         )
         rows.append({
             "engine": engine,
             "display_engine": display_engine,
+            "is_invalid": is_invalid,
             "quantization": "/".join(sorted({str(r.get("quantization", "unknown")) for r in recs})),
             "prompt_count": len(recs),
             "mean_cosine": _mean(sims),
@@ -646,12 +647,12 @@ def compute_dashboard_3(results_path=DRIFT_RESULTS_PATH):
 # STEP 5 — Format Markdown
 # ---------------------------------------------------------------------------
 
-def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3=None):
+def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3=None, generated_at=None):
     """
     Assembles the full Markdown report string from the computed data structures.
     Returns the string (does not print it).
     """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = []
 
     # ---- Header ----
@@ -766,15 +767,26 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
         ]
         for row in dashboard_3["rows"]:
             eng_lbl = row.get("display_engine", row["engine"])
-            lines.append(
-                f"| {eng_lbl} "
-                f"| {row['quantization']} "
-                f"| {row['prompt_count']} "
-                f"| {_fmt(row['mean_cosine'], '.4f')} "
-                f"| {_fmt(row['min_cosine'], '.4f')} "
-                f"| {_fmt(row['p5_cosine'], '.4f')} "
-                f"| {row['below_threshold']} |"
-            )
+            if row.get("is_invalid"):
+                lines.append(
+                    f"| {eng_lbl} "
+                    f"| {row['quantization']} "
+                    f"| {row['prompt_count']} "
+                    "| not scored "
+                    "| not scored "
+                    "| not scored "
+                    "| not scored |"
+                )
+            else:
+                lines.append(
+                    f"| {eng_lbl} "
+                    f"| {row['quantization']} "
+                    f"| {row['prompt_count']} "
+                    f"| {_fmt(row['mean_cosine'], '.4f')} "
+                    f"| {_fmt(row['min_cosine'], '.4f')} "
+                    f"| {_fmt(row['p5_cosine'], '.4f')} "
+                    f"| {row['below_threshold']} |"
+                )
         lines += [
             "",
             "### 3 Lowest-Scoring Prompts per Engine",
@@ -817,7 +829,7 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
 
     slo_icon = "MET" if overall["slo_met"] else "MISSED"
     lines += [
-        f"- **Sample count (200-status with TTFT):** {overall['sample_count']}",
+        f"- **Sample count (successful requests with TTFT):** {overall['sample_count']}",
         f"- **Observed p95 TTFT:** {_fmt(overall['observed_p95_ttft'])} s",
         f"- **SLO target:** {overall['slo_target']} s",
         f"- **SLO status:** {slo_icon}",
@@ -888,14 +900,14 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
 # STEP 6 — Render HTML
 # ---------------------------------------------------------------------------
 
-def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3=None):
+def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3=None, generated_at=None):
     """
     Returns a fully redesigned self-contained HTML dashboard.
     iOS SF Pro font stack, dark theme, sidebar nav, animated KPIs,
     grouped bar charts, circular SLO gauge, IntersectionObserver active nav.
     No external dependencies.
     """
-    now = datetime.now().isoformat(timespec="seconds")
+    now = generated_at or datetime.now().isoformat(timespec="seconds")
     overall = dashboard_4["overall"]
 
     total_records = sum(r["request_count"] for r in dashboard_1)
@@ -1141,23 +1153,35 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         d3_bars = ""
         for row in dashboard_3["rows"]:
             eng_lbl = row.get("display_engine", row["engine"])
-            warn = "#f59e0b" if row["below_threshold"] else "#10b981"
-            d3_rows += (
-                "<tr>"
-                f"<td>{html.escape(eng_lbl)}</td><td>{html.escape(row['quantization'])}</td>"
-                f'<td class="num">{row["prompt_count"]}</td>'
-                f'<td class="num">{_fmt(row["mean_cosine"], ".4f")}</td>'
-                f'<td class="num">{_fmt(row["min_cosine"], ".4f")}</td>'
-                f'<td class="num">{_fmt(row["p5_cosine"], ".4f")}</td>'
-                f'<td class="num" style="color:{warn};font-weight:bold">{row["below_threshold"]}</td>'
-                "</tr>\n"
-            )
-            pct = max(0, min(int(row["mean_cosine"] * 100), 100))
-            d3_bars += (
-                f'<div class="cache-row"><div class="clbl"><span>{html.escape(eng_lbl)} mean cosine</span>'
-                f'<span style="color:#7c3aed;font-weight:600">{_fmt(row["mean_cosine"], ".4f")}</span></div>'
-                f'<div class="bar-track"><div class="bar-fill" data-w="{pct}" style="background:#7c3aed"></div></div></div>\n'
-            )
+            if row.get("is_invalid"):
+                d3_rows += (
+                    "<tr>"
+                    f"<td>{html.escape(eng_lbl)}</td><td>{html.escape(row['quantization'])}</td>"
+                    f'<td class="num">{row["prompt_count"]}</td>'
+                    '<td class="num" style="color:#ef4444;font-style:italic">not scored</td>'
+                    '<td class="num" style="color:#ef4444;font-style:italic">not scored</td>'
+                    '<td class="num" style="color:#ef4444;font-style:italic">not scored</td>'
+                    '<td class="num" style="color:#ef4444;font-style:italic">not scored</td>'
+                    "</tr>\n"
+                )
+            else:
+                warn = "#f59e0b" if row["below_threshold"] else "#10b981"
+                d3_rows += (
+                    "<tr>"
+                    f"<td>{html.escape(eng_lbl)}</td><td>{html.escape(row['quantization'])}</td>"
+                    f'<td class="num">{row["prompt_count"]}</td>'
+                    f'<td class="num">{_fmt(row["mean_cosine"], ".4f")}</td>'
+                    f'<td class="num">{_fmt(row["min_cosine"], ".4f")}</td>'
+                    f'<td class="num">{_fmt(row["p5_cosine"], ".4f")}</td>'
+                    f'<td class="num" style="color:{warn};font-weight:bold">{row["below_threshold"]}</td>'
+                    "</tr>\n"
+                )
+                pct = max(0, min(int(row["mean_cosine"] * 100), 100))
+                d3_bars += (
+                    f'<div class="cache-row"><div class="clbl"><span>{html.escape(eng_lbl)} mean cosine</span>'
+                    f'<span style="color:#7c3aed;font-weight:600">{_fmt(row["mean_cosine"], ".4f")}</span></div>'
+                    f'<div class="bar-track"><div class="bar-fill" data-w="{pct}" style="background:#7c3aed"></div></div></div>\n'
+                )
         d3_low_rows = ""
         for row in dashboard_3["rows"]:
             eng_lbl = row.get("display_engine", row["engine"])
@@ -1337,8 +1361,8 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         '      <h2 style="color:#f59e0b">Data Notes</h2>\n'
         '      <ul style="padding-left:1.4em;color:#94a3b8;line-height:1.9">\n'
         "        <li>Throughput is estimated at max_tokens=50 per request &mdash; reflects benchmark conditions, not open-ended generation.</li>\n"
-        "        <li>custom_runtime TTFT shows N/A because 85&ndash;95% of those runs returned errors with no successful response to measure.</li>\n"
-        "        <li>Semantic cache data: n=69 events. Prefix cache data: n=13 events. These are small samples &mdash; treat as indicative.</li>\n"
+        "        <li>custom_runtime completed benchmark runs with 0.0% error rate; its TTFT was measured in Dashboard 1 (mean 0.762s at c=1, 3.071s at c=10), but its output text in Dashboard 3 is marked INVALID / not scored due to engine token corruption.</li>\n"
+        f"        <li>Semantic cache data: n={dashboard_2_semantic['total_lookups'] if dashboard_2_semantic else 0} lookups. Prefix cache data: n={dashboard_2_prefix['total_requests'] if dashboard_2_prefix else 0} requests. Values computed directly from benchmark event logs.</li>\n"
         "        <li>All numbers are computed directly from raw telemetry JSONL files. No values are fabricated or estimated beyond what is noted above.</li>\n"
         "      </ul>\n"
         "    </div>\n"
@@ -1357,29 +1381,52 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
 
 def main():
     """Entry point. Loads data, computes dashboards, prints Markdown to stdout and writes report.html."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input-dir", default=None, help="Directory containing archived inputs (reproduction mode)")
+    args = parser.parse_args()
+
     # Force stdout to UTF-8 so redirection on Windows doesn't use cp1252.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
-    # Load all agent_enabled=False telemetry records from the current directory.
-    records = load_telemetry(".")
+    input_dir = Path(args.input_dir) if args.input_dir else Path(".")
+
+    # Load all agent_enabled=False telemetry records from the input directory.
+    records = load_telemetry(str(input_dir))
+
+    # Determine generation timestamp
+    if args.input_dir:
+        # Reproduction mode: use deterministic timestamp derived from the inputs
+        ts_values = [r["timestamp"] for r in records if "timestamp" in r]
+        if ts_values:
+            max_ts = max(ts_values)
+            generated_at = datetime.fromtimestamp(max_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        else:
+            generated_at = "2026-10-01 07:46 UTC"
+    else:
+        generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     # Compute each section.
     dashboard_1 = compute_dashboard_1(records)
     # Dashboard 2: two separate caching systems — do NOT conflate.
-    dashboard_2_semantic = compute_dashboard_2_semantic("semantic_cache_events.jsonl")
-    dashboard_2_prefix = compute_dashboard_2_prefix("batch_events.jsonl")
+    dashboard_2_semantic = compute_dashboard_2_semantic(str(input_dir / "semantic_cache_events.jsonl"))
+    dashboard_2_prefix = compute_dashboard_2_prefix(str(input_dir / "batch_events.jsonl"))
     # Dashboard 3 is built only from drift_eval_results.jsonl - no model calls here.
-    dashboard_3 = compute_dashboard_3(DRIFT_RESULTS_PATH)
+    dashboard_3 = compute_dashboard_3(str(input_dir / DRIFT_RESULTS_PATH))
     dashboard_4 = compute_dashboard_4(records)
-    appendix = compute_appendix("docs/proof")
+
+    proof_dir = input_dir / "docs" / "proof"
+    if not proof_dir.exists():
+        proof_dir = Path("docs") / "proof"
+    appendix = compute_appendix(str(proof_dir))
 
     # Format and print Markdown (unchanged behaviour).
-    report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3)
+    report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3, generated_at=generated_at)
+    Path("report.md").write_text(report, encoding="utf-8")
     print(report)
 
     # Also write a self-contained HTML dashboard.
-    html_content = render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3)
+    html_content = render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3, generated_at=generated_at)
     Path("report.html").write_text(html_content, encoding="utf-8")
     print("report.html written", file=sys.stderr)
 
