@@ -125,7 +125,7 @@ async def add_engine(
 
         # Step 1: Pre-validate adapter construction. Fail before modifying file if invalid.
         try:
-            build_adapter(spec)
+            adapter = build_adapter(spec)
         except Exception as exc:
             logger.error("Failed to build adapter for engine '%s': %s", spec.id, exc)
             return JSONResponse(
@@ -155,7 +155,7 @@ async def add_engine(
             )
 
         # Step 3: Swap in-memory state on the router and admin holder
-        admin.router.add_engine(spec)
+        admin.router.add_engine(spec, adapter=adapter)
         admin.specs = new_specs
 
         return JSONResponse(

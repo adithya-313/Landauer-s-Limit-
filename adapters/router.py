@@ -71,15 +71,16 @@ class EngineRouter:
         built_adapters = {spec.id: build_adapter(spec) for spec in specs}
         return cls(adapters=built_adapters)
 
-    def add_engine(self, spec: Any) -> None:
+    def add_engine(self, spec: Any, adapter: Optional[Any] = None) -> None:
         """
         Dynamically registers a new engine adapter using copy-on-write.
 
         Inputs:
         - spec: Validated EngineSpec describing the new engine to add.
+        - adapter: Optional pre-built adapter instance. If None, build_adapter is called.
 
         Side Effects:
-        - Builds the adapter and replaces self.adapters with a new dictionary copy.
+        - Builds or accepts the adapter and replaces self.adapters with a new dictionary copy.
           In-flight requests holding the previous dictionary reference are unaffected.
 
         Errors:
@@ -88,9 +89,10 @@ class EngineRouter:
         if spec.id in self.adapters:
             raise ValueError(f"Engine '{spec.id}' is already registered")
 
-        from engine_config import build_adapter
+        if adapter is None:
+            from engine_config import build_adapter
 
-        adapter = build_adapter(spec)
+            adapter = build_adapter(spec)
 
         # Copy-then-assign protects concurrent in-flight requests holding the old dict
         new_adapters = dict(self.adapters)

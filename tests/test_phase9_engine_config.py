@@ -491,3 +491,28 @@ def test_admin_save_failure_returns_500_and_keeps_old_state(tmp_path: Path, monk
     assert get_response.status_code == 200
     ids = [entry["id"] for entry in get_response.json()["engines"]]
     assert ids == ["vllm_local", "custom_runtime"]
+
+
+def test_admin_post_reuses_built_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that POST /admin/engines reuses the adapter instance built during validation."""
+    client, admin, _config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    call_count = 0
+    fake_adapter_instance = FakeAdapter("counting_adapter")
+
+    def _counting_build(spec: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        return fake_adapter_instance
+
+    monkeypatch.setattr("admin_routes.build_adapter", _counting_build)
+
+    payload = {
+        "id": "single_build_engine",
+        "type": "custom_runtime",
+        "tier": "experimental",
+    }
+    response = client.post("/admin/engines", json=payload)
+    assert response.status_code == 201
+    assert call_count == 1
+    assert admin.router.adapters["single_build_engine"] is fake_adapter_instance
