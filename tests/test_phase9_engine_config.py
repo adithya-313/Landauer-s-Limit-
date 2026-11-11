@@ -1,8 +1,11 @@
+import asyncio
 from pathlib import Path
+from typing import Any, AsyncIterator
 
 import pytest
 import yaml
 
+from adapters.router import EngineRouter
 from engine_config import (
     EngineSpec,
     default_config_path,
@@ -212,3 +215,115 @@ def test_committed_config_yaml_loads() -> None:
     assert specs[1].url == "http://localhost:11434"
     assert specs[2].url == "http://localhost:8888/v1"
     assert specs[3].url is None
+
+
+class FakeAdapter:
+    """Minimal fake async-generator engine adapter for router unit tests without network or GPU."""
+
+    def __init__(self, name: str = "fake", should_fail: bool = False) -> None:
+        self.name = name
+        self.should_fail = should_fail
+        self.closed = False
+
+    async def generate(
+        self,
+        prompt: str,
+        tier: str = "free",
+        max_tokens: int = 100,
+        messages: list[dict] | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        if self.should_fail:
+            raise RuntimeError(f"Fake adapter '{self.name}' simulated failure")
+        yield f"token_from_{self.name}"
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def health_check(self) -> dict:
+        return {"status": "ok", "engine": self.name}
+
+
+def test_router_add_then_route_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that adding an engine dynamically to the router makes it routable."""
+    async def _test() -> None:
+        router = EngineRouter(adapters={"existing": FakeAdapter("existing")})
+        spec = EngineSpec(id="custom_added", type="custom_runtime", tier="test")
+
+        monkeypatch.setattr("engine_config.build_adapter", lambda s: FakeAdapter(s.id))
+
+        router.add_engine(spec)
+        assert "custom_added" in router.adapters
+
+        tokens = [token async for token in router.route_request("custom_added", "test prompt")]
+        assert tokens == ["token_from_custom_added"]
+
+    asyncio.run(_test())
+
+
+def test_router_add_duplicate_raises() -> None:
+    """Verifies that adding an engine with an existing id raises ValueError."""
+    router = EngineRouter(adapters={"eng1": FakeAdapter("eng1")})
+    spec = EngineSpec(id="eng1", type="custom_runtime", tier="test")
+    with pytest.raises(ValueError, match="already registered"):
+        router.add_engine(spec)
+
+
+def test_router_remove_then_routing() -> None:
+    """Verifies that removing an engine prevents routing to it and respects fallback rules."""
+    async def _test() -> None:
+        fake_vllm = FakeAdapter("vllm_local", should_fail=True)
+        fake_llama = FakeAdapter("llamacpp_local")
+        router = EngineRouter(
+            adapters={"vllm_local": fake_vllm, "llamacpp_local": fake_llama}
+        )
+
+        # Verify normal fallback vllm -> llamacpp works when both are registered
+        tokens = [t async for t in router.route_request("vllm_local", "prompt")]
+        assert tokens == ["token_from_llamacpp_local"]
+
+        # Remove llamacpp_local; fallback is no longer registered -> raises RuntimeError
+        removed = router.remove_engine("llamacpp_local")
+        assert removed is fake_llama
+        assert not fake_llama.closed  # Client connection is NOT closed to protect in-flight requests
+
+        with pytest.raises(RuntimeError, match="failed and no fallback is configured"):
+            async for _ in router.route_request("vllm_local", "prompt"):
+                pass
+
+        # Attempting to remove absent engine raises KeyError
+        with pytest.raises(KeyError, match="not registered"):
+            router.remove_engine("absent_engine")
+
+    asyncio.run(_test())
+
+
+def test_router_dict_identity_changes_after_add_and_remove(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that add_engine and remove_engine perform copy-on-write without in-place mutation."""
+    router = EngineRouter(adapters={"eng1": FakeAdapter("eng1")})
+    initial_dict = router.adapters
+
+    monkeypatch.setattr("engine_config.build_adapter", lambda s: FakeAdapter(s.id))
+    router.add_engine(EngineSpec(id="eng2", type="custom_runtime", tier="test"))
+
+    assert router.adapters is not initial_dict
+    assert "eng2" in router.adapters
+    assert "eng2" not in initial_dict
+
+    after_add_dict = router.adapters
+    router.remove_engine("eng2")
+
+    assert router.adapters is not after_add_dict
+    assert "eng2" not in router.adapters
+    assert "eng2" in after_add_dict
+
+
+def test_router_unknown_engine_without_vllm_local_raises_runtime_error() -> None:
+    """Verifies that an unknown engine name raises RuntimeError when vllm_local is not registered."""
+    async def _test() -> None:
+        router = EngineRouter(adapters={"custom_runtime": FakeAdapter("custom_runtime")})
+        with pytest.raises(RuntimeError, match="Unknown engine 'unknown_eng'"):
+            async for _ in router.route_request("unknown_eng", "prompt"):
+                pass
+
+    asyncio.run(_test())

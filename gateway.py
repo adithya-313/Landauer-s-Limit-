@@ -49,6 +49,7 @@ from semantic_cache import semantic_cache as _cache_instance
 
 # The Multi-Engine Router (Phase 5) — dispatches to vLLM, llama.cpp, Colab, etc.
 from adapters.router import EngineRouter
+from engine_config import default_config_path, load_engine_specs
 from request_queue import RequestQueue
 
 # Phase 7a — Admission control, GPU poller, circuit breaker.
@@ -56,8 +57,11 @@ from admission_controller import admit_request
 from gpu_monitor import poll_gpu_metrics
 from circuit_breaker import get_circuit_breaker
 
-# Create the global router instance that all requests share.
-_router = EngineRouter()
+# Phase 9 — Load engine specs and instantiate the global router from configuration.
+# Fails loudly on import if configuration is missing or invalid.
+_config_path = default_config_path()
+_engine_specs = load_engine_specs(_config_path)
+_router = EngineRouter.from_specs(_engine_specs)
 
 # Create the global request queue (Phase 6a)
 _request_queue = RequestQueue(max_size=50)
