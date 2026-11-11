@@ -65,8 +65,8 @@ DRIFT_NOTES = [
         "custom_runtime invalidity: custom_runtime outputs are marked INVALID / not scored ("
         "corrupted output, suspected engine bug — see note), excluded from the comparison. The output "
         "degenerates into repeated tokens (such as 'haveot', 'tootot', 'havehavehave...', and chained commas), "
-        "and a control run with the prefix cache off was also corrupted. Because the degradation is caused by "
-        "runtime engine malfunction rather than standard 4-bit quantization error, its score must not read as a "
+        "and a control run with the prefix cache off was also corrupted. Because the degradation is suspected "
+        "to be runtime engine malfunction rather than standard 4-bit quantization error, its score must not read as a "
         "quantization-quality result."
     ),
     (
