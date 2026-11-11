@@ -11,6 +11,16 @@ import threading
 import time
 from typing import Callable, Literal, Optional
 
+from fastapi import APIRouter, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+
 logger = logging.getLogger("telemetry")
 
 
@@ -191,3 +201,101 @@ class JsonlEventWriter:
         Asynchronously appends an event by offloading file I/O to a worker thread.
         """
         return await asyncio.to_thread(self.append, event)
+
+
+# ---------------------------------------------------------------------------
+# PROMETHEUS METRICS REGISTRY & COLLECTORS
+# ---------------------------------------------------------------------------
+metrics_registry = CollectorRegistry()
+
+landauer_requests_total = Counter(
+    "landauer_requests_total",
+    "Total count of requests processed by engine, tier, outcome, and cache status.",
+    ["engine", "request_tier", "outcome", "cache"],
+    registry=metrics_registry,
+)
+
+landauer_ttft_seconds = Histogram(
+    "landauer_ttft_seconds",
+    "Time to first token in seconds by engine and request tier.",
+    ["engine", "request_tier"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0),
+    registry=metrics_registry,
+)
+
+landauer_stream_tokens_total = Counter(
+    "landauer_stream_tokens_total",
+    "Total number of streamed pieces emitted by engine.",
+    ["engine"],
+    registry=metrics_registry,
+)
+
+landauer_inflight_requests = Gauge(
+    "landauer_inflight_requests",
+    "Number of requests currently executing in the gateway.",
+    registry=metrics_registry,
+)
+
+
+def _poll_gpu_cache_usage() -> float:
+    """
+    Lazily fetches the latest polled GPU cache usage percentage from gpu_monitor.
+    Falls back to 0.0 on import failure or read error.
+    """
+    try:
+        from gpu_monitor import get_gpu_usage_pct
+
+        return float(get_gpu_usage_pct())
+    except Exception as exc:
+        logger.warning("Could not read GPU usage pct: %s", exc)
+        return 0.0
+
+
+landauer_gpu_cache_usage_percent = Gauge(
+    "landauer_gpu_cache_usage_percent",
+    "Current GPU KV-cache usage percentage.",
+    registry=metrics_registry,
+)
+landauer_gpu_cache_usage_percent.set_function(_poll_gpu_cache_usage)
+
+
+def observe_event(event: TelemetryEvent) -> None:
+    """
+    Updates Prometheus counters, histograms, and token counts from a completed request event.
+
+    Inputs:
+    - event: TelemetryEvent recording request metrics.
+    """
+    cache_label = "hit" if event.cache_hit else "miss"
+    landauer_requests_total.labels(
+        engine=event.engine,
+        request_tier=event.request_tier,
+        outcome=event.outcome,
+        cache=cache_label,
+    ).inc()
+
+    if event.ttft_ms is not None:
+        landauer_ttft_seconds.labels(
+            engine=event.engine,
+            request_tier=event.request_tier,
+        ).observe(event.ttft_ms / 1000.0)
+
+    if event.token_count > 0:
+        landauer_stream_tokens_total.labels(
+            engine=event.engine,
+        ).inc(event.token_count)
+
+
+metrics_router = APIRouter(tags=["metrics"])
+
+
+@metrics_router.get("/metrics")
+def metrics_endpoint() -> Response:
+    """
+    Exposes Prometheus metrics collected in the private registry.
+    """
+    return Response(
+        content=generate_latest(metrics_registry),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+

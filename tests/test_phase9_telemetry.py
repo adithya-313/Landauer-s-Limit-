@@ -166,3 +166,89 @@ def test_default_events_path_not_matching_report_glob() -> None:
     resolved_path = default_events_path()
     assert not fnmatch.fnmatch(resolved_path.name, "telemetry_*.jsonl")
     assert resolved_path.name == "gateway_events.jsonl"
+
+
+def test_metrics_endpoint() -> None:
+    """
+    Verifies that the /metrics endpoint exposes Prometheus metrics with the expected values
+    and does not expose batch_engine's metric in the default registry.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from telemetry import metrics_router, observe_event
+
+    app = FastAPI()
+    app.include_router(metrics_router)
+    client = TestClient(app)
+
+    # Observe 3 events:
+    # 2 ok premium with ttft 0.4s (400.0 ms)
+    # 1 error free with ttft 2.0s (2000.0 ms)
+    now = datetime.now(timezone.utc)
+    ev_ok_1 = TelemetryEvent(
+        run_id="run_1",
+        timestamp=now,
+        engine="vllm_local",
+        concurrency=1,
+        ttft_ms=400.0,
+        itl_ms=20.0,
+        tokens_per_sec=50.0,
+        cache_hit=False,
+        agent_enabled=False,
+        tenant_id=None,
+        power_draw_w=None,
+        request_tier="premium",
+        outcome="ok",
+        token_count=5,
+    )
+    ev_ok_2 = TelemetryEvent(
+        run_id="run_2",
+        timestamp=now,
+        engine="vllm_local",
+        concurrency=1,
+        ttft_ms=400.0,
+        itl_ms=20.0,
+        tokens_per_sec=50.0,
+        cache_hit=False,
+        agent_enabled=False,
+        tenant_id=None,
+        power_draw_w=None,
+        request_tier="premium",
+        outcome="ok",
+        token_count=5,
+    )
+    ev_err = TelemetryEvent(
+        run_id="run_3",
+        timestamp=now,
+        engine="vllm_local",
+        concurrency=1,
+        ttft_ms=2000.0,
+        itl_ms=None,
+        tokens_per_sec=None,
+        cache_hit=False,
+        agent_enabled=False,
+        tenant_id=None,
+        power_draw_w=None,
+        request_tier="free",
+        outcome="error",
+        token_count=0,
+    )
+
+    observe_event(ev_ok_1)
+    observe_event(ev_ok_2)
+    observe_event(ev_err)
+
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    metrics_text = response.text
+
+    # Assert exact expected lines
+    assert 'landauer_requests_total{cache="miss",engine="vllm_local",outcome="ok",request_tier="premium"} 2.0' in metrics_text
+    assert 'landauer_ttft_seconds_bucket{engine="vllm_local",le="1.0",request_tier="premium"} 2.0' in metrics_text
+    assert 'landauer_ttft_seconds_bucket{engine="vllm_local",le="1.0",request_tier="free"} 0.0' in metrics_text
+    assert 'landauer_ttft_seconds_bucket{engine="vllm_local",le="3.0",request_tier="free"} 1.0' in metrics_text
+
+    # Assert batch_engine's metric from the default registry does NOT appear
+    assert "gpu_cache_usage_pct" not in metrics_text
+
