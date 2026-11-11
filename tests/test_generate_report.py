@@ -75,3 +75,20 @@ def test_dashboard_3_stats_and_lowest_prompts(tmp_path):
 
 def test_dashboard_3_missing_file_returns_none(tmp_path):
     assert gr.compute_dashboard_3(str(tmp_path / "nope.jsonl")) is None
+
+
+def test_dashboard_3_custom_runtime_marked_invalid(tmp_path):
+    # Verify custom_runtime is labeled as invalid due to engine corruption
+    path = tmp_path / "drift.jsonl"
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "prompt_id": "p0", "prompt": "prompt 0", "engine": "custom_runtime",
+            "quantization": "int4", "reference_output": "r", "candidate_output": "c",
+            "cosine_similarity": 0.5, "timestamp": 0.0,
+        }) + "\n")
+    d3 = gr.compute_dashboard_3(str(path))
+    assert d3 is not None
+    row = d3["rows"][0]
+    assert row["engine"] == "custom_runtime"
+    assert "INVALID" in row["display_engine"]
+
