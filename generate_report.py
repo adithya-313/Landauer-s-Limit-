@@ -1422,12 +1422,14 @@ def main():
 
     # Format and print Markdown (unchanged behaviour).
     report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3, generated_at=generated_at)
-    Path("report.md").write_text(report, encoding="utf-8")
+    with open("report.md", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(report)
     print(report)
 
     # Also write a self-contained HTML dashboard.
     html_content = render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3, generated_at=generated_at)
-    Path("report.html").write_text(html_content, encoding="utf-8")
+    with open("report.html", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(html_content)
     print("report.html written", file=sys.stderr)
 
 
