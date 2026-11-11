@@ -16,22 +16,49 @@ Markdown report to stdout.  Run with:
 
 Dashboards implemented here:
   - Dashboard 1: Compute Engine & Quantization Matrix
+  - Dashboard 2: Semantic Cache & Prefix Cache Efficiency
+  - Dashboard 3: Quantization Quality Drift (reads drift_eval_results.jsonl
+    only - produced separately by drift_eval.py, never by this script)
   - Dashboard 4: SLA / Error Budget (premium tier only)
   - Appendix A1 + A2: KV fragmentation and batch-size time-series from docs/proof
 
-Dashboards 2 (Cache) and 3 (Drift) come in later commits on this branch.
-
 No external libraries required — stdlib only: json, os, glob, statistics,
-datetime, pathlib.
+datetime, pathlib, html.
 """
 
 import glob
+import html
 import json
 import os
 import statistics
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+# Data note shown under Dashboard 1 (documentation only - no numbers computed here).
+LLAMACPP_NOTE = (
+    "llamacpp_local ran with OLLAMA_NUM_PARALLEL=1 (n_slots=1, confirmed from the Ollama "
+    "server.log), so at concurrency 50 requests were served one at a time and queued behind "
+    "each other. This explains its 91.4 s p95 TTFT at concurrency 50. During a separate "
+    "diagnostic rerun (its data is not included in this report), VRAM stayed flat at about "
+    "2.6 of 6.1 GB and GPU utilization was 85-94%, which rules out memory pressure. vLLM uses "
+    "continuous batching, which is why vllm_local stayed under 0.5 s. All table values above "
+    "come from the original benchmark runs; none were re-measured."
+)
+
+# Dashboard 3 settings.
+DRIFT_RESULTS_PATH = "drift_eval_results.jsonl"
+DRIFT_LOW_SIMILARITY = 0.80
+DRIFT_NOTE = (
+    "Reference = Qwen/Qwen2.5-1.5B-Instruct in fp16 (transformers, greedy decoding, max 128 new "
+    "tokens). Every engine answered the same 20 drift_eval prompts (first user turn) with "
+    "temperature 0 and max 128 tokens. Cosine = similarity between all-MiniLM-L6-v2 embeddings "
+    "of the reference answer and the engine's answer: it measures closeness in meaning, not "
+    "correctness. p5 uses the nearest-rank method (index int(N*0.05) of the ascending list). "
+    "Engines that could not run on the test machine are not listed. "
+    "Source: drift_eval_results.jsonl (written by drift_eval.py)."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +136,17 @@ def _mean(values):
     return statistics.mean(values)
 
 
+def _is_error(record):
+    """
+    True if a telemetry record is a failed request.
+
+    A streaming request that times out still records status_code 200 (the
+    response headers arrived) but carries a non-empty "error" field such as
+    "ReadTimeout", so status_code alone under-counts failures.
+    """
+    return record.get("status_code") != 200 or bool(record.get("error"))
+
+
 # ---------------------------------------------------------------------------
 # STEP 2 — Dashboard 1: Compute Engine & Quantization Matrix
 # ---------------------------------------------------------------------------
@@ -122,7 +160,8 @@ def compute_dashboard_1(records):
       - p95_latency_ms   : 95th percentile of latency_ms
       - est_throughput   : mean of (50 / (latency_ms / 1000))
                            50 = max_tokens hardcoded in orchestrator.py
-      - error_rate       : fraction of records with status_code != 200
+      - error_rate       : fraction of error records (see _is_error: status_code != 200
+                           or a non-empty "error" field)
       - request_count    : total records in the group
 
     Returns a list of dicts sorted by engine, quantization, concurrency.
@@ -147,7 +186,7 @@ def compute_dashboard_1(records):
         request_count = len(group)
 
         # Split into successful (200) and failed records.
-        ok_records = [r for r in group if r.get("status_code") == 200]
+        ok_records = [r for r in group if not _is_error(r)]
         error_count = request_count - len(ok_records)
         error_rate = error_count / request_count if request_count > 0 else 0.0
 
@@ -207,7 +246,7 @@ def compute_dashboard_4(records):
     PREMIUM_P95_TTFT_SLO = 1.0   # seconds
     FREE_P95_TTFT_SLO = 3.0      # seconds  (kept for documentation only)
 
-    ok_records = [r for r in records if r.get("status_code") == 200]
+    ok_records = [r for r in records if not _is_error(r)]
     all_ttft = [
         r["client_ttft_seconds"]
         for r in ok_records
@@ -496,10 +535,90 @@ def compute_dashboard_2_prefix(events_path="batch_events.jsonl"):
 
 
 # ---------------------------------------------------------------------------
+# STEP 4b — Dashboard 3: Quantization Quality Drift
+# ---------------------------------------------------------------------------
+
+def _p5(values):
+    """5th percentile, nearest-rank: ascending list, index int(N * 0.05). None if empty."""
+    if not values:
+        return None
+    sorted_vals = sorted(values)
+    return sorted_vals[min(int(len(sorted_vals) * 0.05), len(sorted_vals) - 1)]
+
+
+def _snippet(text, limit=70):
+    """One-line, ASCII-only preview of a prompt so report output stays stable and table-safe."""
+    flat = " ".join(str(text).split()).replace("|", "/")
+    flat = flat.encode("ascii", "replace").decode("ascii")
+    return flat if len(flat) <= limit else flat[: limit - 3] + "..."
+
+
+def compute_dashboard_3(results_path=DRIFT_RESULTS_PATH):
+    """
+    Builds Dashboard 3 purely from drift_eval_results.jsonl (no model calls).
+
+    Per engine: prompt count, mean / min / p5 cosine similarity, how many
+    prompts scored below DRIFT_LOW_SIMILARITY, and the 3 lowest-scoring prompts.
+    If a (engine, prompt_id) pair appears more than once, the last record wins.
+
+    Returns None if the file is missing or holds no usable records.
+    """
+    path = Path(results_path)
+    if not path.exists():
+        print(f"[compute_dashboard_3] {path} not found - Dashboard 3 will be empty.", file=sys.stderr, flush=True)
+        return None
+
+    latest = {}
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            sim = rec.get("cosine_similarity")
+            if not isinstance(sim, (int, float)) or not rec.get("engine"):
+                continue
+            latest[(rec["engine"], rec.get("prompt_id"))] = rec
+
+    by_engine = {}
+    for (engine, _), rec in latest.items():
+        by_engine.setdefault(engine, []).append(rec)
+    if not by_engine:
+        return None
+
+    rows = []
+    for engine in sorted(by_engine):
+        recs = by_engine[engine]
+        sims = [r["cosine_similarity"] for r in recs]
+        lowest = sorted(recs, key=lambda r: (r["cosine_similarity"], str(r.get("prompt_id"))))[:3]
+        rows.append({
+            "engine": engine,
+            "quantization": "/".join(sorted({str(r.get("quantization", "unknown")) for r in recs})),
+            "prompt_count": len(recs),
+            "mean_cosine": _mean(sims),
+            "min_cosine": min(sims),
+            "p5_cosine": _p5(sims),
+            "below_threshold": sum(1 for s in sims if s < DRIFT_LOW_SIMILARITY),
+            "lowest": [
+                {
+                    "prompt_id": r.get("prompt_id"),
+                    "cosine_similarity": r["cosine_similarity"],
+                    "prompt_snippet": _snippet(r.get("prompt", "")),
+                }
+                for r in lowest
+            ],
+        })
+    return {"threshold": DRIFT_LOW_SIMILARITY, "rows": rows}
+
+
+# ---------------------------------------------------------------------------
 # STEP 5 — Format Markdown
 # ---------------------------------------------------------------------------
 
-def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix):
+def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3=None):
     """
     Assembles the full Markdown report string from the computed data structures.
     Returns the string (does not print it).
@@ -513,7 +632,6 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
         f"Generated: {now}",
         "",
         "> **Scope:** `agent_enabled=False` records only (baseline, no agent layer).",
-        "> Dashboards 2 (Cache) and 3 (Drift) are implemented in a later commit.",
         "",
     ]
 
@@ -549,6 +667,7 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
         " requests that hit the EOS token early or errored.",
         "> **Note:** Cache hit rate per combination is not available in telemetry records"
         " (reported separately in Dashboard 2).",
+        f"> **Note:** {LLAMACPP_NOTE}",
         "",
     ]
 
@@ -604,6 +723,46 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
             " custom runtime only, not from semantic cache lookups.",
             "",
         ]
+
+    # ---- Dashboard 3 ----
+    lines += [
+        "## Dashboard 3: Quantization Quality Drift",
+        "",
+    ]
+    if dashboard_3 is None:
+        lines += [f"> **Data not available** - `{DRIFT_RESULTS_PATH}` not found or empty.", ""]
+    else:
+        lines += [
+            f"| Engine | Quant | Prompts | Mean Cosine | Min Cosine | p5 Cosine | Prompts < {dashboard_3['threshold']:.2f} |",
+            "|--------|-------|---------|-------------|------------|-----------|---------------|",
+        ]
+        for row in dashboard_3["rows"]:
+            lines.append(
+                f"| {row['engine']} "
+                f"| {row['quantization']} "
+                f"| {row['prompt_count']} "
+                f"| {_fmt(row['mean_cosine'], '.4f')} "
+                f"| {_fmt(row['min_cosine'], '.4f')} "
+                f"| {_fmt(row['p5_cosine'], '.4f')} "
+                f"| {row['below_threshold']} |"
+            )
+        lines += [
+            "",
+            "### 3 Lowest-Scoring Prompts per Engine",
+            "",
+            "| Engine | Rank | Prompt ID | Cosine | Prompt (first 70 chars) |",
+            "|--------|------|-----------|--------|-------------------------|",
+        ]
+        for row in dashboard_3["rows"]:
+            for rank, low in enumerate(row["lowest"], start=1):
+                lines.append(
+                    f"| {row['engine']} "
+                    f"| {rank} "
+                    f"| {low['prompt_id']} "
+                    f"| {_fmt(low['cosine_similarity'], '.4f')} "
+                    f"| {low['prompt_snippet']} |"
+                )
+        lines += ["", f"> **Note:** {DRIFT_NOTE}", ""]
 
     # ---- Dashboard 4 ----
     overall = dashboard_4["overall"]
@@ -696,7 +855,7 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
 # STEP 6 — Render HTML
 # ---------------------------------------------------------------------------
 
-def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix):
+def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3=None):
     """
     Returns a fully redesigned self-contained HTML dashboard.
     iOS SF Pro font stack, dark theme, sidebar nav, animated KPIs,
@@ -943,6 +1102,57 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         "</div>"
     )
 
+    # --- Dashboard 3: quantization quality drift ---
+    if dashboard_3:
+        d3_rows = ""
+        d3_bars = ""
+        for row in dashboard_3["rows"]:
+            warn = "#f59e0b" if row["below_threshold"] else "#10b981"
+            d3_rows += (
+                "<tr>"
+                f"<td>{html.escape(row['engine'])}</td><td>{html.escape(row['quantization'])}</td>"
+                f'<td class="num">{row["prompt_count"]}</td>'
+                f'<td class="num">{_fmt(row["mean_cosine"], ".4f")}</td>'
+                f'<td class="num">{_fmt(row["min_cosine"], ".4f")}</td>'
+                f'<td class="num">{_fmt(row["p5_cosine"], ".4f")}</td>'
+                f'<td class="num" style="color:{warn};font-weight:bold">{row["below_threshold"]}</td>'
+                "</tr>\n"
+            )
+            pct = max(0, min(int(row["mean_cosine"] * 100), 100))
+            d3_bars += (
+                f'<div class="cache-row"><div class="clbl"><span>{html.escape(row["engine"])} mean cosine</span>'
+                f'<span style="color:#7c3aed;font-weight:600">{_fmt(row["mean_cosine"], ".4f")}</span></div>'
+                f'<div class="bar-track"><div class="bar-fill" data-w="{pct}" style="background:#7c3aed"></div></div></div>\n'
+            )
+        d3_low_rows = ""
+        for row in dashboard_3["rows"]:
+            for rank, low in enumerate(row["lowest"], start=1):
+                d3_low_rows += (
+                    "<tr>"
+                    f"<td>{html.escape(row['engine'])}</td>"
+                    f'<td class="num">{rank}</td>'
+                    f"<td>{html.escape(str(low['prompt_id']))}</td>"
+                    f'<td class="num">{_fmt(low["cosine_similarity"], ".4f")}</td>'
+                    f"<td>{html.escape(low['prompt_snippet'])}</td>"
+                    "</tr>\n"
+                )
+        d3_html = (
+            '<div class="table-wrap"><table>\n'
+            "        <tr><th>Engine</th><th>Quant</th><th>Prompts</th><th>Mean Cosine</th>"
+            f"<th>Min Cosine</th><th>p5 Cosine</th><th>Prompts &lt; {dashboard_3['threshold']:.2f}</th></tr>\n"
+            f"        {d3_rows}"
+            "      </table></div>\n"
+            f"      {d3_bars}"
+            "      <h3>3 Lowest-Scoring Prompts per Engine</h3>\n"
+            '      <div class="table-wrap"><table>\n'
+            "        <tr><th>Engine</th><th>Rank</th><th>Prompt ID</th><th>Cosine</th><th>Prompt (first 70 chars)</th></tr>\n"
+            f"        {d3_low_rows}"
+            "      </table></div>\n"
+            f'      <p class="note">{html.escape(DRIFT_NOTE)}</p>'
+        )
+    else:
+        d3_html = f'<p class="note">Data not available - {DRIFT_RESULTS_PATH} not found or empty.</p>'
+
     # --- Appendix A1 rows (cap at 50) ---
     a1_rows = ""
     for row in appendix["a1"][:50]:
@@ -1001,6 +1211,7 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         '  <a class="nav-link" href="#overview">Overview</a>\n'
         '  <a class="nav-link" href="#dashboard-1">Dashboard 1</a>\n'
         '  <a class="nav-link" href="#dashboard-2">Dashboard 2</a>\n'
+        '  <a class="nav-link" href="#dashboard-3">Dashboard 3</a>\n'
         '  <a class="nav-link" href="#dashboard-4">Dashboard 4</a>\n'
         '  <a class="nav-link" href="#appendix">Appendix</a>\n'
         '  <a class="nav-link" href="#data-notes">Data Notes</a>\n'
@@ -1032,6 +1243,7 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         "      <h3>Throughput Comparison</h3>\n"
         f"      {spark_html}\n"
         '      <p class="note">Throughput estimated as max_tokens=50 / latency_s. ITL not recorded in telemetry.</p>\n'
+        f'      <p class="note">{html.escape(LLAMACPP_NOTE)}</p>\n'
         "    </div>\n"
         "  </section>\n"
         '  <section id="dashboard-2">\n'
@@ -1041,6 +1253,12 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         f'      <div class="table-wrap">{d2a}</div>\n'
         "      <h3>2B: Prefix Cache (Phase 6d - KV Block Hash Reuse)</h3>\n"
         f'      <div class="table-wrap">{d2b}</div>\n'
+        "    </div>\n"
+        "  </section>\n"
+        '  <section id="dashboard-3">\n'
+        '    <div class="card">\n'
+        "      <h2>Dashboard 3 - Quantization Quality Drift</h2>\n"
+        f"      {d3_html}\n"
         "    </div>\n"
         "  </section>\n"
         '  <section id="dashboard-4">\n'
@@ -1115,15 +1333,17 @@ def main():
     # Dashboard 2: two separate caching systems — do NOT conflate.
     dashboard_2_semantic = compute_dashboard_2_semantic("semantic_cache_events.jsonl")
     dashboard_2_prefix = compute_dashboard_2_prefix("batch_events.jsonl")
+    # Dashboard 3 is built only from drift_eval_results.jsonl - no model calls here.
+    dashboard_3 = compute_dashboard_3(DRIFT_RESULTS_PATH)
     dashboard_4 = compute_dashboard_4(records)
     appendix = compute_appendix("docs/proof")
 
     # Format and print Markdown (unchanged behaviour).
-    report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix)
+    report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3)
     print(report)
 
     # Also write a self-contained HTML dashboard.
-    html_content = render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix)
+    html_content = render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3)
     Path("report.html").write_text(html_content, encoding="utf-8")
     print("report.html written", file=sys.stderr)
 
