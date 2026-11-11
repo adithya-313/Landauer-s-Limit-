@@ -57,6 +57,9 @@ from admission_controller import admit_request
 from gpu_monitor import poll_gpu_metrics
 from circuit_breaker import get_circuit_breaker
 
+# Phase 9: Admin routes for live engine reload
+from admin_routes import EngineAdmin, init_admin, router as admin_router
+
 # Phase 9 — Load engine specs and instantiate the global router from configuration.
 # Fails loudly on import if configuration is missing or invalid.
 _config_path = default_config_path()
@@ -281,6 +284,16 @@ app = FastAPI(
 
 # Register the payload-size middleware.
 app.middleware("http")(check_payload_size)
+
+# Phase 9: Wire admin routes with EngineAdmin instance
+_engine_admin = EngineAdmin(
+    router=_router,
+    specs=_engine_specs,
+    config_path=_config_path,
+)
+init_admin(_engine_admin)
+app.state.engine_admin = _engine_admin
+app.include_router(admin_router)
 
 
 # ---------------------------------------------------------------------------

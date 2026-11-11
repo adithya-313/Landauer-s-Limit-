@@ -327,3 +327,167 @@ def test_router_unknown_engine_without_vllm_local_raises_runtime_error() -> None
                 pass
 
     asyncio.run(_test())
+
+
+def _create_test_admin_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any, Path]:
+    """Helper creating a fresh minimal FastAPI app with admin_routes mounted and a test config file."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from admin_routes import EngineAdmin, init_admin, router as admin_router
+
+    config_file = tmp_path / "admin_test_config.yaml"
+    initial_specs = [
+        EngineSpec(
+            id="vllm_local",
+            type="vllm",
+            url="http://127.0.0.1:8001/v1",
+            tier="premium",
+        ),
+        EngineSpec(
+            id="custom_runtime",
+            type="custom_runtime",
+            tier="experimental",
+        ),
+    ]
+    save_engine_specs(config_file, initial_specs)
+
+    adapters = {
+        "vllm_local": FakeAdapter("vllm_local"),
+        "custom_runtime": FakeAdapter("custom_runtime"),
+    }
+    router = EngineRouter(adapters=adapters)
+    admin = EngineAdmin(router=router, specs=initial_specs, config_path=config_file)
+    init_admin(admin)
+
+    monkeypatch.setattr("admin_routes.build_adapter", lambda s: FakeAdapter(s.id))
+    monkeypatch.setattr("engine_config.build_adapter", lambda s: FakeAdapter(s.id))
+
+    app = FastAPI()
+    app.state.engine_admin = admin
+    app.include_router(admin_router)
+
+    return TestClient(app), admin, config_file
+
+
+def test_admin_get_engines_lists_current_specs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that GET /admin/engines lists all current in-memory engine specs."""
+    client, _admin, _config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    response = client.get("/admin/engines")
+    assert response.status_code == 200
+    data = response.json()
+    assert "engines" in data
+    ids = [entry["id"] for entry in data["engines"]]
+    assert ids == ["vllm_local", "custom_runtime"]
+
+
+def test_admin_post_adds_and_persists_to_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that POST /admin/engines registers a new engine and saves it to disk."""
+    client, admin, config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    payload = {
+        "id": "colab_cloud",
+        "type": "colab",
+        "url": "http://localhost:8888/v1",
+        "tier": "best_effort",
+    }
+    response = client.post("/admin/engines", json=payload)
+    assert response.status_code == 201
+    assert response.json()["id"] == "colab_cloud"
+
+    # Verify updated in memory
+    assert any(s.id == "colab_cloud" for s in admin.specs)
+    assert "colab_cloud" in admin.router.adapters
+
+    # Verify persisted to disk
+    persisted = load_engine_specs(config_file)
+    assert any(s.id == "colab_cloud" for s in persisted)
+
+
+def test_admin_post_duplicate_returns_409(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that POST /admin/engines with an existing id returns 409 Conflict."""
+    client, _admin, _config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    payload = {
+        "id": "vllm_local",
+        "type": "vllm",
+        "url": "http://127.0.0.1:8001/v1",
+        "tier": "premium",
+    }
+    response = client.post("/admin/engines", json=payload)
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == 409
+    assert "already exists" in error["message"]
+
+
+def test_admin_post_invalid_body_returns_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that POST /admin/engines with an invalid payload returns 422 Unprocessable Entity."""
+    client, _admin, _config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    invalid_payload = {
+        "id": "BAD-ID-WITH-HYPHEN",
+        "type": "invalid_engine_type",
+    }
+    response = client.post("/admin/engines", json=invalid_payload)
+    assert response.status_code == 422
+
+
+def test_admin_delete_removes_from_memory_and_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that DELETE /admin/engines/{id} removes the engine from memory and disk."""
+    client, admin, config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    response = client.delete("/admin/engines/custom_runtime")
+    assert response.status_code == 200
+    assert response.json() == {"removed": "custom_runtime"}
+
+    # Verify removed from in-memory state
+    assert not any(s.id == "custom_runtime" for s in admin.specs)
+    assert "custom_runtime" not in admin.router.adapters
+
+    # Verify removed from disk configuration
+    persisted = load_engine_specs(config_file)
+    assert not any(s.id == "custom_runtime" for s in persisted)
+
+
+def test_admin_delete_unknown_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that DELETE /admin/engines/{id} for an unregistered id returns 404 Not Found."""
+    client, _admin, _config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    response = client.delete("/admin/engines/nonexistent_id")
+    assert response.status_code == 404
+    error = response.json()["error"]
+    assert error["code"] == 404
+    assert "not found" in error["message"]
+
+
+def test_admin_save_failure_returns_500_and_keeps_old_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that when save_engine_specs raises OSError, a 500 error is returned and state is unchanged."""
+    client, admin, _config_file = _create_test_admin_app(tmp_path, monkeypatch)
+
+    def _failing_save(path: Any, specs: Any) -> None:
+        raise OSError("Simulated disk write failure")
+
+    monkeypatch.setattr("admin_routes.save_engine_specs", _failing_save)
+
+    payload = {
+        "id": "failed_engine",
+        "type": "custom_runtime",
+        "tier": "experimental",
+    }
+    response = client.post("/admin/engines", json=payload)
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == 500
+
+    # In-memory specs must remain completely unchanged
+    assert not any(s.id == "failed_engine" for s in admin.specs)
+    assert "failed_engine" not in admin.router.adapters
+
+    # GET endpoint still returns the original list
+    get_response = client.get("/admin/engines")
+    assert get_response.status_code == 200
+    ids = [entry["id"] for entry in get_response.json()["engines"]]
+    assert ids == ["vllm_local", "custom_runtime"]
