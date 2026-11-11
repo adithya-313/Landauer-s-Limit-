@@ -1,8 +1,7 @@
 # Phase 8 — Comparison Dashboard Report
-Generated: 2026-10-01 08:51 UTC
+Generated: 2026-10-01 07:46 UTC
 
 > **Scope:** `agent_enabled=False` records only (baseline, no agent layer).
-> Dashboards 2 (Cache) and 3 (Drift) are implemented in a later commit.
 
 ## Dashboard 1: Compute Engine & Quantization Matrix
 
@@ -22,6 +21,7 @@ Generated: 2026-10-01 08:51 UTC
 > **Note:** ITL (inter-token latency) is not recorded in telemetry — the orchestrator only captures wall-clock TTFT (first byte) and total latency.
 > **Note:** Throughput is estimated as `max_tokens=50 / latency_seconds`. This assumes every request generated exactly 50 tokens, which may not hold for requests that hit the EOS token early or errored.
 > **Note:** Cache hit rate per combination is not available in telemetry records (reported separately in Dashboard 2).
+> **Note:** llamacpp_local ran with OLLAMA_NUM_PARALLEL=1 (n_slots=1, confirmed from the Ollama server.log), so at concurrency 50 requests were served one at a time and queued behind each other. This explains its 91.4 s p95 TTFT at concurrency 50. During a separate diagnostic rerun (its data is not included in this report), VRAM stayed flat at about 2.6 of 6.1 GB and GPU utilization was 85-94%, which rules out memory pressure. vLLM uses continuous batching, which is why vllm_local stayed under 0.5 s. All table values above come from the original benchmark runs; none were re-measured.
 
 ## Dashboard 2: Semantic Cache & Prefix Cache Efficiency
 
@@ -56,6 +56,33 @@ Generated: 2026-10-01 08:51 UTC
 > Source: `batch_events.jsonl` (prefix_stats sub-records)
 > **Note:** Prefix cache data comes from Phase 6d traffic through the custom runtime only, not from semantic cache lookups.
 
+## Dashboard 3: Quantization Quality Drift
+
+| Engine | Quant | Prompts | Mean Cosine | Min Cosine | p5 Cosine | Prompts < 0.80 |
+|--------|-------|---------|-------------|------------|-----------|---------------|
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | int4 | 20 | not scored | not scored | not scored | not scored |
+| llamacpp_local | gguf_q4 | 20 | 0.8302 | 0.0460 | 0.7237 | 5 |
+| vllm_local | awq | 20 | 0.8112 | 0.0460 | 0.7159 | 7 |
+
+### 3 Lowest-Scoring Prompts per Engine
+
+| Engine | Rank | Prompt ID | Cosine | Prompt (first 70 chars) |
+|--------|------|-----------|--------|-------------------------|
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | 1 | 5YspPQK_126 | 0.0460 | Transcription factors are proteins that influence the ability of th... |
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | 2 | A2CrMAR_0 | 0.1255 | You're naval ravikant, how'll you solve a startup problem related w... |
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | 3 | AgmrRcN_0 | 0.3184 | Please compose a humorous poem to my friend and Hare Krishna devote... |
+| llamacpp_local | 1 | 5YspPQK_126 | 0.0460 | Transcription factors are proteins that influence the ability of th... |
+| llamacpp_local | 2 | AQVAB0b_0 | 0.7237 | Explain this salesforce database trigger Please write in English la... |
+| llamacpp_local | 3 | AgmrRcN_0 | 0.7625 | Please compose a humorous poem to my friend and Hare Krishna devote... |
+| vllm_local | 1 | 5YspPQK_126 | 0.0460 | Transcription factors are proteins that influence the ability of th... |
+| vllm_local | 2 | AQVAB0b_0 | 0.7159 | Explain this salesforce database trigger Please write in English la... |
+| vllm_local | 3 | AgmrRcN_0 | 0.7357 | Please compose a humorous poem to my friend and Hare Krishna devote... |
+
+> **Note:** Reference = Qwen/Qwen2.5-1.5B-Instruct in fp16 (transformers, greedy decoding, max 128 new tokens). Every engine answered the same 20 drift_eval prompts (first user turn) with temperature 0 and max 128 tokens. Cosine = similarity between all-MiniLM-L6-v2 embeddings of the reference answer and the engine's answer: it measures closeness in meaning, not correctness. p5 uses the nearest-rank method (index int(N*0.05) of the ascending list). Engines that could not run on the test machine are not listed. Source: drift_eval_results.jsonl (written by drift_eval.py).
+> **Note:** custom_runtime invalidity: custom_runtime outputs are marked INVALID / not scored (corrupted output, suspected engine bug — see note), excluded from the comparison. The output degenerates into repeated tokens (such as 'haveot', 'tootot', 'havehavehave...', and chained commas), and a control run with the prefix cache off was also corrupted. Because the degradation is suspected to be runtime engine malfunction rather than standard 4-bit quantization error, its score must not read as a quantization-quality result.
+> **Note:** Metric limits: MiniLM cosine similarity penalizes length differences (the prompt where every engine answered only 'True' scored 0.046); n=20, so each prompt is 5% of a mean.
+> **Note:** Configuration parity: Confirmed that the fp16 reference and all candidate engines used the exact same chat template (Qwen2.5 chat template), no extra system prompt beyond the default ('You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'), and the same max_tokens=128.
+
 ## Dashboard 4: SLA / Error Budget
 
 ### SLO Definitions
@@ -67,7 +94,7 @@ Generated: 2026-10-01 08:51 UTC
 
 ### Overall Attainment (Premium Tier)
 
-- **Sample count (200-status with TTFT):** 2935
+- **Sample count (successful requests with TTFT):** 2935
 - **Observed p95 TTFT:** 5.938 s
 - **SLO target:** 1.0 s
 - **SLO status:** MISSED
@@ -545,4 +572,3 @@ Generated: 2026-10-01 08:51 UTC
 | 1789391815.07 | 1 | 1 |
 | 1789391815.17 | 1 | 1 |
 | 1789391815.27 | 1 | 1 |
-
