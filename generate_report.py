@@ -50,15 +50,37 @@ LLAMACPP_NOTE = (
 # Dashboard 3 settings.
 DRIFT_RESULTS_PATH = "drift_eval_results.jsonl"
 DRIFT_LOW_SIMILARITY = 0.80
-DRIFT_NOTE = (
-    "Reference = Qwen/Qwen2.5-1.5B-Instruct in fp16 (transformers, greedy decoding, max 128 new "
-    "tokens). Every engine answered the same 20 drift_eval prompts (first user turn) with "
-    "temperature 0 and max 128 tokens. Cosine = similarity between all-MiniLM-L6-v2 embeddings "
-    "of the reference answer and the engine's answer: it measures closeness in meaning, not "
-    "correctness. p5 uses the nearest-rank method (index int(N*0.05) of the ascending list). "
-    "Engines that could not run on the test machine are not listed. "
-    "Source: drift_eval_results.jsonl (written by drift_eval.py)."
-)
+DRIFT_NOTES = [
+    (
+        "Reference = Qwen/Qwen2.5-1.5B-Instruct in fp16 (transformers, greedy decoding, max 128 new "
+        "tokens). Every engine answered the same 20 drift_eval prompts (first user turn) with "
+        "temperature 0 and max 128 tokens. Cosine = similarity between all-MiniLM-L6-v2 embeddings "
+        "of the reference answer and the engine's answer: it measures closeness in meaning, not "
+        "correctness. p5 uses the nearest-rank method (index int(N*0.05) of the ascending list). "
+        "Engines that could not run on the test machine are not listed. "
+        "Source: drift_eval_results.jsonl (written by drift_eval.py)."
+    ),
+    (
+        "custom_runtime invalidity: custom_runtime outputs are marked INVALID due to severe output "
+        "corruption (an engine bug in custom batching/KV-cache logic caused degenerate generation with "
+        "repetitive stuttering such as 'haveot', 'tootot', 'havehavehave...', and chained commas). The "
+        "prefix-cache-off control run in earlier benchmarks suffered the same corruption. Because the "
+        "degradation is caused by runtime engine malfunction rather than standard 4-bit quantization error, "
+        "its score (0.6071) must NOT be read as a quantization-quality result."
+    ),
+    (
+        "Metric limits: Cosine similarity of all-MiniLM-L6-v2 embeddings penalizes length differences "
+        "heavily between reference and candidate outputs. For example, on prompt 5YspPQK_126 all engines answered "
+        "only 'True' while the reference generated a full explanatory paragraph, resulting in a score of 0.0460 "
+        "despite a correct answer. With n=20, each individual prompt accounts for 5% of the mean."
+    ),
+    (
+        "Parity confirmation: Confirmed that the fp16 reference and all candidate engines used the exact "
+        "same chat template (Qwen2.5 chat template), no extra system prompt beyond the default "
+        "('You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'), and the same max_tokens=128."
+    ),
+]
+DRIFT_NOTE = DRIFT_NOTES[0]
 
 
 # ---------------------------------------------------------------------------
@@ -594,8 +616,14 @@ def compute_dashboard_3(results_path=DRIFT_RESULTS_PATH):
         recs = by_engine[engine]
         sims = [r["cosine_similarity"] for r in recs]
         lowest = sorted(recs, key=lambda r: (r["cosine_similarity"], str(r.get("prompt_id"))))[:3]
+        display_engine = (
+            f"{engine} (INVALID – corrupted output, engine bug suspected, see note)"
+            if engine == "custom_runtime"
+            else engine
+        )
         rows.append({
             "engine": engine,
+            "display_engine": display_engine,
             "quantization": "/".join(sorted({str(r.get("quantization", "unknown")) for r in recs})),
             "prompt_count": len(recs),
             "mean_cosine": _mean(sims),
@@ -737,8 +765,9 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
             "|--------|-------|---------|-------------|------------|-----------|---------------|",
         ]
         for row in dashboard_3["rows"]:
+            eng_lbl = row.get("display_engine", row["engine"])
             lines.append(
-                f"| {row['engine']} "
+                f"| {eng_lbl} "
                 f"| {row['quantization']} "
                 f"| {row['prompt_count']} "
                 f"| {_fmt(row['mean_cosine'], '.4f')} "
@@ -754,15 +783,19 @@ def format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashb
             "|--------|------|-----------|--------|-------------------------|",
         ]
         for row in dashboard_3["rows"]:
+            eng_lbl = row.get("display_engine", row["engine"])
             for rank, low in enumerate(row["lowest"], start=1):
                 lines.append(
-                    f"| {row['engine']} "
+                    f"| {eng_lbl} "
                     f"| {rank} "
                     f"| {low['prompt_id']} "
                     f"| {_fmt(low['cosine_similarity'], '.4f')} "
                     f"| {low['prompt_snippet']} |"
                 )
-        lines += ["", f"> **Note:** {DRIFT_NOTE}", ""]
+        lines.append("")
+        for note in DRIFT_NOTES:
+            lines.append(f"> **Note:** {note}")
+        lines.append("")
 
     # ---- Dashboard 4 ----
     overall = dashboard_4["overall"]
@@ -1107,10 +1140,11 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
         d3_rows = ""
         d3_bars = ""
         for row in dashboard_3["rows"]:
+            eng_lbl = row.get("display_engine", row["engine"])
             warn = "#f59e0b" if row["below_threshold"] else "#10b981"
             d3_rows += (
                 "<tr>"
-                f"<td>{html.escape(row['engine'])}</td><td>{html.escape(row['quantization'])}</td>"
+                f"<td>{html.escape(eng_lbl)}</td><td>{html.escape(row['quantization'])}</td>"
                 f'<td class="num">{row["prompt_count"]}</td>'
                 f'<td class="num">{_fmt(row["mean_cosine"], ".4f")}</td>'
                 f'<td class="num">{_fmt(row["min_cosine"], ".4f")}</td>'
@@ -1120,22 +1154,24 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
             )
             pct = max(0, min(int(row["mean_cosine"] * 100), 100))
             d3_bars += (
-                f'<div class="cache-row"><div class="clbl"><span>{html.escape(row["engine"])} mean cosine</span>'
+                f'<div class="cache-row"><div class="clbl"><span>{html.escape(eng_lbl)} mean cosine</span>'
                 f'<span style="color:#7c3aed;font-weight:600">{_fmt(row["mean_cosine"], ".4f")}</span></div>'
                 f'<div class="bar-track"><div class="bar-fill" data-w="{pct}" style="background:#7c3aed"></div></div></div>\n'
             )
         d3_low_rows = ""
         for row in dashboard_3["rows"]:
+            eng_lbl = row.get("display_engine", row["engine"])
             for rank, low in enumerate(row["lowest"], start=1):
                 d3_low_rows += (
                     "<tr>"
-                    f"<td>{html.escape(row['engine'])}</td>"
+                    f"<td>{html.escape(eng_lbl)}</td>"
                     f'<td class="num">{rank}</td>'
                     f"<td>{html.escape(str(low['prompt_id']))}</td>"
                     f'<td class="num">{_fmt(low["cosine_similarity"], ".4f")}</td>'
                     f"<td>{html.escape(low['prompt_snippet'])}</td>"
                     "</tr>\n"
                 )
+        d3_notes_html = "".join(f'      <p class="note">{html.escape(note)}</p>\n' for note in DRIFT_NOTES)
         d3_html = (
             '<div class="table-wrap"><table>\n'
             "        <tr><th>Engine</th><th>Quant</th><th>Prompts</th><th>Mean Cosine</th>"
@@ -1148,7 +1184,7 @@ def render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard
             "        <tr><th>Engine</th><th>Rank</th><th>Prompt ID</th><th>Cosine</th><th>Prompt (first 70 chars)</th></tr>\n"
             f"        {d3_low_rows}"
             "      </table></div>\n"
-            f'      <p class="note">{html.escape(DRIFT_NOTE)}</p>'
+            f"{d3_notes_html}"
         )
     else:
         d3_html = f'<p class="note">Data not available - {DRIFT_RESULTS_PATH} not found or empty.</p>'
