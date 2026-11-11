@@ -1,5 +1,5 @@
 # Phase 8 — Comparison Dashboard Report
-Generated: 2026-11-11 18:09 UTC
+Generated: 2026-10-01 07:46 UTC
 
 > **Scope:** `agent_enabled=False` records only (baseline, no agent layer).
 
@@ -60,7 +60,7 @@ Generated: 2026-11-11 18:09 UTC
 
 | Engine | Quant | Prompts | Mean Cosine | Min Cosine | p5 Cosine | Prompts < 0.80 |
 |--------|-------|---------|-------------|------------|-----------|---------------|
-| custom_runtime (INVALID – corrupted output, engine bug suspected, see note) | int4 | 20 | 0.6071 | 0.0460 | 0.1255 | 16 |
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | int4 | 20 | not scored | not scored | not scored | not scored |
 | llamacpp_local | gguf_q4 | 20 | 0.8302 | 0.0460 | 0.7237 | 5 |
 | vllm_local | awq | 20 | 0.8112 | 0.0460 | 0.7159 | 7 |
 
@@ -68,9 +68,9 @@ Generated: 2026-11-11 18:09 UTC
 
 | Engine | Rank | Prompt ID | Cosine | Prompt (first 70 chars) |
 |--------|------|-----------|--------|-------------------------|
-| custom_runtime (INVALID – corrupted output, engine bug suspected, see note) | 1 | 5YspPQK_126 | 0.0460 | Transcription factors are proteins that influence the ability of th... |
-| custom_runtime (INVALID – corrupted output, engine bug suspected, see note) | 2 | A2CrMAR_0 | 0.1255 | You're naval ravikant, how'll you solve a startup problem related w... |
-| custom_runtime (INVALID – corrupted output, engine bug suspected, see note) | 3 | AgmrRcN_0 | 0.3184 | Please compose a humorous poem to my friend and Hare Krishna devote... |
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | 1 | 5YspPQK_126 | 0.0460 | Transcription factors are proteins that influence the ability of th... |
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | 2 | A2CrMAR_0 | 0.1255 | You're naval ravikant, how'll you solve a startup problem related w... |
+| custom_runtime (INVALID – corrupted output, suspected engine bug — see note) | 3 | AgmrRcN_0 | 0.3184 | Please compose a humorous poem to my friend and Hare Krishna devote... |
 | llamacpp_local | 1 | 5YspPQK_126 | 0.0460 | Transcription factors are proteins that influence the ability of th... |
 | llamacpp_local | 2 | AQVAB0b_0 | 0.7237 | Explain this salesforce database trigger Please write in English la... |
 | llamacpp_local | 3 | AgmrRcN_0 | 0.7625 | Please compose a humorous poem to my friend and Hare Krishna devote... |
@@ -79,9 +79,9 @@ Generated: 2026-11-11 18:09 UTC
 | vllm_local | 3 | AgmrRcN_0 | 0.7357 | Please compose a humorous poem to my friend and Hare Krishna devote... |
 
 > **Note:** Reference = Qwen/Qwen2.5-1.5B-Instruct in fp16 (transformers, greedy decoding, max 128 new tokens). Every engine answered the same 20 drift_eval prompts (first user turn) with temperature 0 and max 128 tokens. Cosine = similarity between all-MiniLM-L6-v2 embeddings of the reference answer and the engine's answer: it measures closeness in meaning, not correctness. p5 uses the nearest-rank method (index int(N*0.05) of the ascending list). Engines that could not run on the test machine are not listed. Source: drift_eval_results.jsonl (written by drift_eval.py).
-> **Note:** custom_runtime invalidity: custom_runtime outputs are marked INVALID due to severe output corruption (an engine bug in custom batching/KV-cache logic caused degenerate generation with repetitive stuttering such as 'haveot', 'tootot', 'havehavehave...', and chained commas). The prefix-cache-off control run in earlier benchmarks suffered the same corruption. Because the degradation is caused by runtime engine malfunction rather than standard 4-bit quantization error, its score (0.6071) must NOT be read as a quantization-quality result.
-> **Note:** Metric limits: Cosine similarity of all-MiniLM-L6-v2 embeddings penalizes length differences heavily between reference and candidate outputs. For example, on prompt 5YspPQK_126 all engines answered only 'True' while the reference generated a full explanatory paragraph, resulting in a score of 0.0460 despite a correct answer. With n=20, each individual prompt accounts for 5% of the mean.
-> **Note:** Parity confirmation: Confirmed that the fp16 reference and all candidate engines used the exact same chat template (Qwen2.5 chat template), no extra system prompt beyond the default ('You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'), and the same max_tokens=128.
+> **Note:** custom_runtime invalidity: custom_runtime outputs are marked INVALID / not scored (corrupted output, suspected engine bug — see note), excluded from the comparison. The output degenerates into repeated tokens (such as 'haveot', 'tootot', 'havehavehave...', and chained commas), and a control run with the prefix cache off was also corrupted. Because the degradation is caused by runtime engine malfunction rather than standard 4-bit quantization error, its score must not read as a quantization-quality result.
+> **Note:** Metric limits: MiniLM cosine similarity penalizes length differences (the prompt where every engine answered only 'True' scored 0.046); n=20, so each prompt is 5% of a mean.
+> **Note:** Configuration parity: Confirmed that the fp16 reference and all candidate engines used the exact same chat template (Qwen2.5 chat template), no extra system prompt beyond the default ('You are Qwen, created by Alibaba Cloud. You are a helpful assistant.'), and the same max_tokens=128.
 
 ## Dashboard 4: SLA / Error Budget
 
@@ -94,7 +94,7 @@ Generated: 2026-11-11 18:09 UTC
 
 ### Overall Attainment (Premium Tier)
 
-- **Sample count (200-status with TTFT):** 2935
+- **Sample count (successful requests with TTFT):** 2935
 - **Observed p95 TTFT:** 5.938 s
 - **SLO target:** 1.0 s
 - **SLO status:** MISSED
@@ -572,4 +572,3 @@ Generated: 2026-11-11 18:09 UTC
 | 1789391815.07 | 1 | 1 |
 | 1789391815.17 | 1 | 1 |
 | 1789391815.27 | 1 | 1 |
-

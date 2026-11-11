@@ -92,3 +92,30 @@ def test_dashboard_3_custom_runtime_marked_invalid(tmp_path):
     assert row["engine"] == "custom_runtime"
     assert "INVALID" in row["display_engine"]
 
+
+def test_format_markdown_custom_runtime_not_scored(tmp_path):
+    # Verify custom_runtime shows 'not scored' in markdown table output
+    path = tmp_path / "drift.jsonl"
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "prompt_id": "p0", "prompt": "prompt 0", "engine": "custom_runtime",
+            "quantization": "int4", "reference_output": "r", "candidate_output": "c",
+            "cosine_similarity": 0.5, "timestamp": 0.0,
+        }) + "\n")
+    d3 = gr.compute_dashboard_3(str(path))
+    d1 = []
+    d4 = gr.compute_dashboard_4([])
+    app = {"a1": [], "a2": []}
+    md = gr.format_markdown(d1, None, None, d4, app, d3)
+    assert "not scored" in md
+
+
+def test_reproduction_deterministic_timestamp():
+    # Verify deterministic timestamp is rendered in format_markdown
+    d1 = []
+    d4 = gr.compute_dashboard_4([])
+    app = {"a1": [], "a2": []}
+    fixed_ts = "2026-10-01 07:46 UTC"
+    md = gr.format_markdown(d1, None, None, d4, app, None, generated_at=fixed_ts)
+    assert f"Generated: {fixed_ts}" in md
+
