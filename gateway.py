@@ -60,11 +60,27 @@ from circuit_breaker import get_circuit_breaker
 # Phase 9: Admin routes for live engine reload
 from admin_routes import EngineAdmin, init_admin, router as admin_router
 
+# Phase 9: Telemetry & Prometheus metrics
+from telemetry import (
+    JsonlEventWriter,
+    StreamTimer,
+    build_telemetry_event,
+    dec_inflight,
+    default_events_path,
+    inc_inflight,
+    metrics_router,
+    observe_event,
+    record_event_background,
+)
+
 # Phase 9 — Load engine specs and instantiate the global router from configuration.
 # Fails loudly on import if configuration is missing or invalid.
 _config_path = default_config_path()
 _engine_specs = load_engine_specs(_config_path)
 _router = EngineRouter.from_specs(_engine_specs)
+
+# Phase 9: Global JSONL event writer
+_events_writer = JsonlEventWriter(default_events_path())
 
 # Create the global request queue (Phase 6a)
 _request_queue = RequestQueue(max_size=50)
@@ -294,6 +310,7 @@ _engine_admin = EngineAdmin(
 init_admin(_engine_admin)
 app.state.engine_admin = _engine_admin
 app.include_router(admin_router)
+app.include_router(metrics_router)
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +462,14 @@ async def create_chat_completion(
          response is inserted into the cache.
          Headers: X-Cache: MISS [+ X-Guardrail-Degraded].
     """
+    stream_timer = StreamTimer()
+    stream_timer.start()
+
+    run_id = request.headers.get("x-run-id", "").strip() or "live"
+    raw_agent = request.headers.get("x-agent-enabled", "").strip().lower()
+    agent_enabled = raw_agent == "true"
+    requested_engine = request_body.engine or "vllm_local"
+
     # --- Step 1: Parse / extract the last user message ---
     messages_dicts = [
         {"role": msg.role, "content": msg.content}
@@ -470,6 +495,17 @@ async def create_chat_completion(
             content={"error": "No user message found in the request."},
         )
 
+    # Track in-flight: inc landauer_inflight_requests when the route starts work
+    # after validation; dec exactly once when the request ends.
+    concurrency = inc_inflight()
+    inflight_decremented = False
+
+    def _safe_dec_inflight() -> None:
+        nonlocal inflight_decremented
+        if not inflight_decremented:
+            dec_inflight()
+            inflight_decremented = True
+
     # --- Step 2: Guardrail with fail-open ---
     degraded = False
     try:
@@ -480,6 +516,7 @@ async def create_chat_completion(
 
         # Step 3: Malicious -> Hard Halt.
         if is_malicious:
+            _safe_dec_inflight()
             return JSONResponse(
                 status_code=400,
                 content={
@@ -490,6 +527,7 @@ async def create_chat_completion(
 
     except asyncio.TimeoutError:
         # Phase 7a: Fail-closed — guardrail timed out, reject request.
+        _safe_dec_inflight()
         logger.warning(
             "Guardrail timeout (%.0f ms) — rejecting for prompt: %.50s",
             _guardrail_module.GUARDRAIL_TIMEOUT * 1000,
@@ -512,6 +550,26 @@ async def create_chat_completion(
         if degraded:
             headers["X-Guardrail-Degraded"] = "true"
         logger.info("Cache HIT for: %.50s", last_user_message)
+
+        hit_duration_ms = (
+            (time.monotonic() - stream_timer._t_start) * 1000.0
+            if stream_timer._t_start is not None
+            else 0.0
+        )
+        hit_event = build_telemetry_event(
+            run_id=run_id,
+            engine=requested_engine,
+            concurrency=concurrency,
+            request_tier=request_body.tier,
+            agent_enabled=agent_enabled,
+            cache_hit=True,
+            ttft_ms=hit_duration_ms,
+            outcome="ok",
+        )
+        observe_event(hit_event)
+        record_event_background(_events_writer, hit_event)
+        _safe_dec_inflight()
+
         return JSONResponse(
             status_code=200,
             content=cached_response,
@@ -540,6 +598,7 @@ async def create_chat_completion(
             messages=messages_dicts
         )
     except RuntimeError as e:
+        _safe_dec_inflight()
         # The queue is full, gracefully reject the request immediately rather than blocking
         return JSONResponse(status_code=429, content={"error": str(e)})
 
@@ -566,6 +625,7 @@ async def create_chat_completion(
                     break
                 else:
                     token = msg["content"]
+                    stream_timer.mark_token()
                     full_content += token
                     # Yield an OpenAI-compatible SSE delta chunk.
                     chunk = {
@@ -578,7 +638,25 @@ async def create_chat_completion(
                     }
                     yield f"data: {json.dumps(chunk)}\n\n"
 
+        except BaseException:
+            stream_failed = True
+            raise
         finally:
+            stream_timer.finish()
+            miss_event = build_telemetry_event(
+                run_id=run_id,
+                engine=requested_engine,
+                concurrency=concurrency,
+                request_tier=request_body.tier,
+                agent_enabled=agent_enabled,
+                cache_hit=False,
+                timer=stream_timer,
+                outcome="error" if stream_failed else "ok",
+            )
+            observe_event(miss_event)
+            record_event_background(_events_writer, miss_event)
+            _safe_dec_inflight()
+
             # Signal the end of the SSE stream.
             yield "data: [DONE]\n\n"
 

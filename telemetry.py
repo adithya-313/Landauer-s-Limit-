@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 import os
 from pathlib import Path
 import threading
 import time
-from typing import Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, Response
 from prometheus_client import (
@@ -298,4 +298,105 @@ def metrics_endpoint() -> Response:
         content=generate_latest(metrics_registry),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+def inc_inflight() -> int:
+    """
+    Increments the in-flight gauge and returns the current concurrency count.
+    """
+    landauer_inflight_requests.inc()
+    return int(landauer_inflight_requests._value.get())
+
+
+def dec_inflight() -> None:
+    """
+    Decrements the in-flight request gauge.
+    """
+    landauer_inflight_requests.dec()
+
+
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def record_event_background(writer: JsonlEventWriter, event: TelemetryEvent) -> None:
+    """
+    Schedules an asynchronous append of the telemetry event without blocking.
+    Holds a strong reference in a module-level set until done to avoid garbage collection.
+    """
+    task = asyncio.create_task(writer.append_async(event))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def build_telemetry_event(
+    *,
+    run_id: str,
+    engine: str,
+    concurrency: int,
+    request_tier: str,
+    agent_enabled: bool,
+    cache_hit: bool,
+    timer: Optional[StreamTimer] = None,
+    ttft_ms: Optional[float] = None,
+    itl_ms: Optional[float] = None,
+    tokens_per_sec: Optional[float] = None,
+    token_count: int = 0,
+    outcome: Literal["ok", "error"] = "ok",
+    tenant_id: Optional[str] = None,
+    power_draw_w: Optional[float] = None,
+    timestamp: Optional[datetime] = None,
+) -> TelemetryEvent:
+    """
+    Constructs a validated TelemetryEvent from request parameters and timers.
+
+    Inputs:
+    - run_id: Benchmark or experiment run identifier.
+    - engine: Requested engine identifier.
+    - concurrency: In-flight request count measured at request start.
+    - request_tier: Request classification tier (e.g. 'premium', 'free').
+    - agent_enabled: Whether client indicated agent execution via header.
+    - cache_hit: True if response was served directly from cache.
+    - timer: Optional StreamTimer from which latency and throughput are extracted.
+    - ttft_ms: Explicit time-to-first-token in ms (overrides timer if given).
+    - itl_ms: Explicit inter-token latency in ms (overrides timer if given).
+    - tokens_per_sec: Explicit throughput in tokens/sec (overrides timer if given).
+    - token_count: Explicit token count (defaults to timer count if timer provided).
+    - outcome: Either 'ok' or 'error'.
+    - tenant_id: Optional tenant identifier.
+    - power_draw_w: Optional power draw in Watts.
+    - timestamp: Optional timezone-aware UTC datetime.
+
+    Returns:
+    - TelemetryEvent instance with formatted metrics.
+    """
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc)
+
+    if timer is not None:
+        if ttft_ms is None:
+            ttft_ms = timer.ttft_ms
+        if itl_ms is None:
+            itl_ms = timer.itl_ms
+        if tokens_per_sec is None:
+            tokens_per_sec = timer.tokens_per_sec
+        if token_count == 0:
+            token_count = timer.token_count
+
+    return TelemetryEvent(
+        run_id=run_id,
+        timestamp=timestamp,
+        engine=engine,
+        concurrency=concurrency,
+        ttft_ms=ttft_ms,
+        itl_ms=itl_ms,
+        tokens_per_sec=tokens_per_sec,
+        cache_hit=cache_hit,
+        agent_enabled=agent_enabled,
+        tenant_id=tenant_id,
+        power_draw_w=power_draw_w,
+        request_tier=request_tier,
+        outcome=outcome,
+        token_count=token_count,
+    )
+
 

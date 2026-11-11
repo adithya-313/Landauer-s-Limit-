@@ -252,3 +252,85 @@ def test_metrics_endpoint() -> None:
     # Assert batch_engine's metric from the default registry does NOT appear
     assert "gpu_cache_usage_pct" not in metrics_text
 
+
+def test_build_telemetry_event_cache_hit_fields() -> None:
+    """Verifies that build_telemetry_event formats cache hit events correctly."""
+    from telemetry import build_telemetry_event
+
+    event = build_telemetry_event(
+        run_id="run_cache_hit_test",
+        engine="vllm_local",
+        concurrency=4,
+        request_tier="premium",
+        agent_enabled=True,
+        cache_hit=True,
+        ttft_ms=15.5,
+        outcome="ok",
+    )
+    assert event.run_id == "run_cache_hit_test"
+    assert event.engine == "vllm_local"
+    assert event.concurrency == 4
+    assert event.request_tier == "premium"
+    assert event.agent_enabled is True
+    assert event.cache_hit is True
+    assert event.ttft_ms == 15.5
+    assert event.itl_ms is None
+    assert event.tokens_per_sec is None
+    assert event.token_count == 0
+    assert event.outcome == "ok"
+    assert event.tenant_id is None
+    assert event.power_draw_w is None
+    assert event.timestamp.tzinfo == timezone.utc
+
+
+def test_build_telemetry_event_cache_miss_fields_with_timer() -> None:
+    """Verifies that build_telemetry_event extracts metrics from a StreamTimer for cache misses."""
+    from telemetry import build_telemetry_event
+
+    clock = ScriptedClock([0.0, 0.2, 0.4, 0.6])
+    timer = StreamTimer(clock=clock)
+    timer.start()
+    timer.mark_token()
+    timer.mark_token()
+    timer.mark_token()
+
+    event = build_telemetry_event(
+        run_id="run_stream_test",
+        engine="llamacpp_local",
+        concurrency=2,
+        request_tier="free",
+        agent_enabled=False,
+        cache_hit=False,
+        timer=timer,
+        outcome="ok",
+    )
+    assert event.run_id == "run_stream_test"
+    assert event.engine == "llamacpp_local"
+    assert event.concurrency == 2
+    assert event.request_tier == "free"
+    assert event.agent_enabled is False
+    assert event.cache_hit is False
+    assert event.token_count == 3
+    assert event.ttft_ms == pytest.approx(200.0)
+    assert event.itl_ms == pytest.approx(200.0)
+    assert event.tokens_per_sec == pytest.approx(5.0)
+    assert event.outcome == "ok"
+
+
+def test_build_telemetry_event_error_outcome() -> None:
+    """Verifies that error outcome is correctly stored on the TelemetryEvent."""
+    from telemetry import build_telemetry_event
+
+    event = build_telemetry_event(
+        run_id="run_error_test",
+        engine="colab_cloud",
+        concurrency=1,
+        request_tier="best_effort",
+        agent_enabled=False,
+        cache_hit=False,
+        outcome="error",
+    )
+    assert event.outcome == "error"
+    assert event.engine == "colab_cloud"
+
+
