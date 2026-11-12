@@ -58,7 +58,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def test_gateway_chat_completion(gateway_url: str, api_key: str) -> bool:
+def check_gateway_chat_completion(gateway_url: str, api_key: str) -> bool:
     """
     Sends a chat completion request to the gateway and validates the SSE stream.
 
@@ -138,7 +138,7 @@ def test_gateway_chat_completion(gateway_url: str, api_key: str) -> bool:
         return False
 
 
-def test_grafana_health(grafana_url: str) -> bool:
+def check_grafana_health(grafana_url: str) -> bool:
     """
     Checks Grafana /api/health endpoint to ensure the database connection is healthy.
 
@@ -206,8 +206,8 @@ def main() -> None:
         print("FAIL: LANDAUER_API_KEY environment variable is not set")
         sys.exit(1)
 
-    gateway_ok = test_gateway_chat_completion(args.gateway_url, api_key)
-    grafana_ok = test_grafana_health(args.grafana_url)
+    gateway_ok = check_gateway_chat_completion(args.gateway_url, api_key)
+    grafana_ok = check_grafana_health(args.grafana_url)
 
     if gateway_ok and grafana_ok:
         sys.exit(0)
