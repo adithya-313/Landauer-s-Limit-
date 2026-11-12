@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
+from fastapi import Request, Response
 from pydantic import BaseModel, Field, ValidationError
 import yaml
 
@@ -135,3 +137,55 @@ def load_tenants(path: str | Path) -> TenantStore:
         tenants.append(tenant)
 
     return TenantStore(tenants)
+
+
+_AUTH_ERROR_BYTES = json.dumps(
+    {
+        "error": {
+            "message": "Invalid or missing API key",
+            "type": "unauthorized",
+            "code": 401,
+        }
+    }
+).encode("utf-8")
+
+EXEMPT_ROUTES = {("GET", "/health"), ("GET", "/metrics")}
+
+
+def make_api_key_middleware(
+    store: TenantStore,
+) -> Callable[[Request, Callable[[Request], Any]], Any]:
+    """
+    Factory creating an ASGI HTTP middleware that validates X-API-Key against the TenantStore.
+
+    Inputs:
+    - store: Validated TenantStore used for constant-time key hash lookup.
+
+    Returns:
+    - Middleware coroutine function taking (request, call_next).
+    """
+
+    async def api_key_middleware(
+        request: Request, call_next: Callable[[Request], Any]
+    ) -> Any:
+        # Exempt specific paths that must remain publicly accessible without credentials
+        if (request.method, request.url.path) in EXEMPT_ROUTES:
+            return await call_next(request)
+
+        raw_key = request.headers.get("x-api-key")
+        tenant = store.lookup(raw_key)
+
+        if tenant is None:
+            return Response(
+                content=_AUTH_ERROR_BYTES,
+                status_code=401,
+                media_type="application/json",
+            )
+
+        request.state.tenant_id = tenant.tenant_id
+        request.state.tier = tenant.tier
+
+        return await call_next(request)
+
+    return api_key_middleware
+

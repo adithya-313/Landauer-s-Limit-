@@ -59,6 +59,8 @@ from circuit_breaker import get_circuit_breaker
 
 # Phase 9: Admin routes for live engine reload
 from admin_routes import EngineAdmin, init_admin, router as admin_router
+from payload_guard import check_payload_size
+from tenants import default_tenants_path, load_tenants, make_api_key_middleware
 
 # Phase 9: Telemetry & Prometheus metrics
 from telemetry import (
@@ -82,6 +84,10 @@ _router = EngineRouter.from_specs(_engine_specs)
 # Phase 9: Global JSONL event writer
 _events_writer = JsonlEventWriter(default_events_path())
 
+# Phase 9: Authenticated tenant store
+_tenants_path = default_tenants_path()
+_tenant_store = load_tenants(_tenants_path)
+
 # Create the global request queue (Phase 6a)
 _request_queue = RequestQueue(max_size=50)
 
@@ -90,16 +96,6 @@ logger = logging.getLogger("gateway")
 logger.setLevel(logging.INFO)
 
 
-# ---------------------------------------------------------------------------
-# CONSTANTS
-# ---------------------------------------------------------------------------
-# MAX_PAYLOAD_SIZE_BYTES defines the upper limit for any request body.
-# If the client sends more than 64 KB we reject it before reading a byte.
-# ---------------------------------------------------------------------------
-MAX_PAYLOAD_SIZE_BYTES: int = 65536
-
-
-# ---------------------------------------------------------------------------
 # DATA MODELS (Domain-Driven Design — Layer 1)
 # ---------------------------------------------------------------------------
 # These Pydantic classes define the exact shape of the OpenAI-compatible
@@ -191,102 +187,9 @@ class ChatCompletionResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# SECURITY MIDDLEWARE (Domain-Driven Design — Layer 2)
-# ---------------------------------------------------------------------------
-# This middleware runs on EVERY incoming request before FastAPI processes
-# the route. It checks the Content-Length header and rejects oversized
-# payloads WITHOUT reading the body, keeping memory usage predictable.
-# ---------------------------------------------------------------------------
-
-async def check_payload_size(request: Request, call_next):
-    """
-    ASGI middleware that enforces a maximum request body size.
-
-    How it works:
-    1. Read the Content-Length header from the request.
-    2. If the header is missing, return 411 Length Required immediately.
-    3. If the value exceeds MAX_PAYLOAD_SIZE_BYTES, return 413.
-    4. Otherwise, pass the request through to the normal route handler.
-
-    Parameters
-    ----------
-    request : Request
-        The incoming HTTP request.
-    call_next : callable
-        The next middleware or route handler in the chain.
-
-    Returns
-    -------
-    Response
-        Either an error JSONResponse or the normal handler response.
-    """
-    # Only enforce Content-Length rules on methods that carry a body.
-    # GET, DELETE, HEAD, OPTIONS typically have no body so we skip the check.
-    if request.method in ("GET", "DELETE", "HEAD", "OPTIONS"):
-        return await call_next(request)
-
-    # Try to read the Content-Length header.
-    content_length_header = request.headers.get("content-length")
-
-    # If no Content-Length was sent, we cannot safely size the payload.
-    # Reject with HTTP 411 Length Required.
-    if content_length_header is None:
-        return JSONResponse(
-            status_code=411,
-            content={
-                "error": {
-                    "message": (
-                        "Content-Length header is required. "
-                        "Please include it with your request."
-                    ),
-                    "type": "length_required",
-                    "code": 411,
-                }
-            },
-        )
-
-    # Parse the header value to an integer. If it's malformed, reject.
-    try:
-        content_length = int(content_length_header)
-    except ValueError:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "message": "Content-Length header is not a valid integer.",
-                    "type": "bad_request",
-                    "code": 400,
-                }
-            },
-        )
-
-    # If the payload exceeds our limit, return 413 BEFORE reading the body.
-    if content_length > MAX_PAYLOAD_SIZE_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={
-                "error": {
-                    "message": (
-                        f"Payload too large. Maximum allowed size is "
-                        f"{MAX_PAYLOAD_SIZE_BYTES} bytes, but received "
-                        f"{content_length} bytes."
-                    ),
-                    "type": "payload_too_large",
-                    "code": 413,
-                }
-            },
-        )
-
-    # Payload is within limits. Hand off to the route handler.
-    response = await call_next(request)
-    return response
-
-
-# ---------------------------------------------------------------------------
 # APPLICATION SETUP
 # ---------------------------------------------------------------------------
-# Create the FastAPI app instance and register the security middleware
-# so that every request passes through it.
+# Create the FastAPI app instance and register security and auth middlewares.
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
@@ -300,6 +203,11 @@ app = FastAPI(
 
 # Register the payload-size middleware.
 app.middleware("http")(check_payload_size)
+
+# Register API-key authentication middleware.
+# In Starlette, middleware registered LATER runs FIRST, ensuring authentication
+# is the outermost layer and executes before payload size checks.
+app.middleware("http")(make_api_key_middleware(_tenant_store))
 
 # Phase 9: Wire admin routes with EngineAdmin instance
 _engine_admin = EngineAdmin(
@@ -470,6 +378,16 @@ async def create_chat_completion(
     agent_enabled = raw_agent == "true"
     requested_engine = request_body.engine or "vllm_local"
 
+    # Determine authoritative tenant tier from authenticated request state
+    effective_tier: str = getattr(request.state, "tier", "free")
+    tenant_id: Optional[str] = getattr(request.state, "tenant_id", None)
+    if request_body.tier != effective_tier:
+        logger.info(
+            "Client requested tier '%s', but authoritative tenant tier is '%s'.",
+            request_body.tier,
+            effective_tier,
+        )
+
     # --- Step 1: Parse / extract the last user message ---
     messages_dicts = [
         {"role": msg.role, "content": msg.content}
@@ -534,7 +452,7 @@ async def create_chat_completion(
             last_user_message,
         )
         from protective_actions import reject_request
-        body = reject_request(reason="Guardrail CPU check exceeded SLA", tier=request_body.tier)
+        body = reject_request(reason="Guardrail CPU check exceeded SLA", tier=effective_tier)
         return JSONResponse(status_code=429, content=body)
     except Exception:
         # Fail-open — any unexpected guardrail error, proceed degraded.
@@ -556,11 +474,12 @@ async def create_chat_completion(
             run_id=run_id,
             engine=requested_engine,
             concurrency=concurrency,
-            request_tier=request_body.tier,
+            request_tier=effective_tier,
             agent_enabled=agent_enabled,
             cache_hit=True,
             ttft_ms=hit_duration_ms,
             outcome="ok",
+            tenant_id=tenant_id,
         )
         observe_event(hit_event)
         record_event_background(_events_writer, hit_event)
@@ -588,7 +507,7 @@ async def create_chat_completion(
         req_id = await _request_queue.enqueue(
             engine=request_body.engine,
             prompt=last_user_message,
-            tier=request_body.tier,
+            tier=effective_tier,
             max_tokens=request_body.max_tokens,
             response_queue=response_queue,
             messages=messages_dicts
@@ -644,11 +563,12 @@ async def create_chat_completion(
                 run_id=run_id,
                 engine=requested_engine,
                 concurrency=concurrency,
-                request_tier=request_body.tier,
+                request_tier=effective_tier,
                 agent_enabled=agent_enabled,
                 cache_hit=False,
                 timer=stream_timer,
                 outcome="error" if stream_failed else "ok",
+                tenant_id=tenant_id,
             )
             observe_event(miss_event)
             record_event_background(_events_writer, miss_event)
