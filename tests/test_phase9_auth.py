@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 import re
@@ -386,5 +387,98 @@ def test_get_tenant_context_missing_raises() -> None:
     # Case 5: state.tier is None
     with pytest.raises(RuntimeError, match=expected_msg):
         get_tenant_context(SimpleNamespace(state=SimpleNamespace(tenant_id="tenant_123", tier=None)))
+
+
+def test_tenant_store_replace_tenants() -> None:
+    """Verifies replace_tenants changes list identity and lookup uses new tenants."""
+    raw_k1 = "secret_key_1"
+    h1 = hashlib.sha256(raw_k1.encode("utf-8")).hexdigest()
+    raw_k2 = "secret_key_2"
+    h2 = hashlib.sha256(raw_k2.encode("utf-8")).hexdigest()
+
+    tenant_old = Tenant(tenant_id="old_t", tier="free", key_sha256=h1)
+    tenant_new = Tenant(tenant_id="new_t", tier="premium", key_sha256=h2)
+    store = TenantStore([tenant_old])
+    old_list = store.tenants
+
+    assert store.lookup(raw_k1) == tenant_old
+    assert store.lookup(raw_k2) is None
+
+    store.replace_tenants([tenant_new])
+    assert store.tenants is not old_list
+    assert store.lookup(raw_k1) is None
+    assert store.lookup(raw_k2) == tenant_new
+
+
+def test_load_tenants_from_pg_success() -> None:
+    """Verifies loading tenants from a fake Postgres connection returning rows."""
+    async def _test() -> None:
+        fake_rows = [
+            {
+                "tenant_id": "tenant_pg_1",
+                "tier": "free",
+                "key_sha256": "1" * 64,
+            },
+            {
+                "tenant_id": "tenant_pg_2",
+                "tier": "premium",
+                "key_sha256": "2" * 64,
+            },
+        ]
+
+        class FakeConn:
+            async def fetch(self, query: str) -> list[dict[str, Any]]:
+                assert "SELECT tenant_id, tier, key_sha256 FROM tenants" in query
+                return fake_rows
+
+        from tenants import load_tenants_from_pg
+
+        tenants = await load_tenants_from_pg(FakeConn())
+        assert len(tenants) == 2
+        assert tenants[0].tenant_id == "tenant_pg_1"
+        assert tenants[0].tier == "free"
+        assert tenants[1].tenant_id == "tenant_pg_2"
+        assert tenants[1].tier == "premium"
+
+    asyncio.run(_test())
+
+
+def test_load_tenants_from_pg_zero_rows_raises() -> None:
+    """Verifies ValueError is raised when Postgres returns zero rows."""
+    async def _test() -> None:
+        class EmptyConn:
+            async def fetch(self, query: str) -> list[dict[str, Any]]:
+                return []
+
+        from tenants import load_tenants_from_pg
+
+        with pytest.raises(ValueError, match="zero rows"):
+            await load_tenants_from_pg(EmptyConn())
+
+    asyncio.run(_test())
+
+
+def test_load_tenants_from_pg_bad_row_raises() -> None:
+    """Verifies ValueError is raised when a row contains an invalid (e.g. uppercase) hash."""
+    async def _test() -> None:
+        bad_rows = [
+            {
+                "tenant_id": "bad_tenant",
+                "tier": "free",
+                "key_sha256": "A" * 64,
+            }
+        ]
+
+        class BadConn:
+            async def fetch(self, query: str) -> list[dict[str, Any]]:
+                return bad_rows
+
+        from tenants import load_tenants_from_pg
+
+        with pytest.raises(ValueError, match="invalid"):
+            await load_tenants_from_pg(BadConn())
+
+    asyncio.run(_test())
+
 
 

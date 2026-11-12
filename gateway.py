@@ -65,6 +65,7 @@ from tenants import (
     default_tenants_path,
     get_tenant_context,
     load_tenants,
+    load_tenants_from_pg,
     make_api_key_middleware,
 )
 
@@ -97,6 +98,13 @@ _pg_writer = PgEventWriter(dsn=_pg_dsn if _pg_dsn else None)
 # Phase 9: Authenticated tenant store
 _tenants_path = default_tenants_path()
 _tenant_store = load_tenants(_tenants_path)
+
+# Phase 9: Opt-in Postgres tenant source configuration
+_tenant_source = os.environ.get("LANDAUER_TENANT_SOURCE", "yaml").strip().lower()
+if _tenant_source not in ("yaml", "postgres"):
+    raise ValueError(
+        f"Invalid LANDAUER_TENANT_SOURCE '{_tenant_source}'; must be 'yaml' or 'postgres'"
+    )
 
 # Create the global request queue (Phase 6a)
 _request_queue = RequestQueue(max_size=50)
@@ -265,6 +273,17 @@ async def on_startup():
         logger.info("Postgres dual-write enabled")
     else:
         logger.info("disabled (LANDAUER_PG_DSN unset)")
+
+    # Phase 9: Opt-in Postgres tenant source
+    if _tenant_source == "postgres":
+        if not _pg_dsn:
+            raise ValueError(
+                "LANDAUER_TENANT_SOURCE is 'postgres' but LANDAUER_PG_DSN is not set"
+            )
+        target = _pg_writer._pool if _pg_writer._pool is not None else _pg_dsn
+        pg_tenants = await load_tenants_from_pg(target)
+        _tenant_store.replace_tenants(pg_tenants)
+        logger.info("Loaded %d tenants from Postgres", len(pg_tenants))
 
 
 @app.on_event("shutdown")

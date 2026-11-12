@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional
 
+import asyncpg
 from fastapi import Request, Response
 from pydantic import BaseModel, Field, ValidationError
 import yaml
@@ -60,6 +61,18 @@ class TenantStore:
                 matched = tenant
 
         return matched
+
+    def replace_tenants(self, new_tenants: list[Tenant]) -> None:
+        """
+        Replaces the stored tenants atomically using copy-then-assign.
+
+        Inputs:
+        - new_tenants: List of validated Tenant instances.
+
+        Side Effects:
+        - Replaces self.tenants with a new list copy without mutating the previous list in-place.
+        """
+        self.tenants = list(new_tenants)
 
 
 def get_tenant_context(request: Any) -> tuple[str, str]:
@@ -165,6 +178,73 @@ def load_tenants(path: str | Path) -> TenantStore:
         tenants.append(tenant)
 
     return TenantStore(tenants)
+
+
+async def load_tenants_from_pg(pool_or_dsn: Any) -> list[Tenant]:
+    """
+    Loads and validates tenant configurations from PostgreSQL.
+
+    Inputs:
+    - pool_or_dsn: asyncpg Pool, Connection, or connection DSN string.
+
+    Returns:
+    - list[Tenant] containing validated Tenant instances.
+
+    Errors:
+    - Raises ValueError if zero rows are returned, if duplicate tenant_id
+      or key_sha256 entries exist, or if row validation fails.
+    """
+    query = "SELECT tenant_id, tier, key_sha256 FROM tenants"
+    if isinstance(pool_or_dsn, str):
+        conn = await asyncpg.connect(pool_or_dsn)
+        try:
+            rows = await conn.fetch(query)
+        finally:
+            await conn.close()
+    elif hasattr(pool_or_dsn, "fetch"):
+        rows = await pool_or_dsn.fetch(query)
+    elif hasattr(pool_or_dsn, "acquire"):
+        async with pool_or_dsn.acquire() as conn:
+            rows = await conn.fetch(query)
+    else:
+        raise ValueError(f"Invalid pool_or_dsn object: {type(pool_or_dsn)}")
+
+    if not rows:
+        raise ValueError("No tenant records found in database (zero rows)")
+
+    tenants: list[Tenant] = []
+    seen_ids: set[str] = set()
+    seen_hashes: set[str] = set()
+
+    for idx, row in enumerate(rows):
+        if isinstance(row, dict):
+            row_dict = row
+        else:
+            try:
+                row_dict = dict(row)
+            except Exception:
+                row_dict = {
+                    "tenant_id": row["tenant_id"],
+                    "tier": row["tier"],
+                    "key_sha256": row["key_sha256"],
+                }
+
+        try:
+            tenant = Tenant(**row_dict)
+        except ValidationError as exc:
+            raise ValueError(f"Tenant database row {idx} is invalid: {exc}") from exc
+
+        if tenant.tenant_id in seen_ids:
+            raise ValueError(f"Duplicate tenant_id in database: '{tenant.tenant_id}'")
+        seen_ids.add(tenant.tenant_id)
+
+        if tenant.key_sha256 in seen_hashes:
+            raise ValueError(f"Duplicate key_sha256 in database: '{tenant.key_sha256}'")
+        seen_hashes.add(tenant.key_sha256)
+
+        tenants.append(tenant)
+
+    return tenants
 
 
 _AUTH_ERROR_BYTES = json.dumps(
