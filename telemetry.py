@@ -339,14 +339,38 @@ def dec_inflight() -> None:
 _background_tasks: set[asyncio.Task[Any]] = set()
 
 
-def record_event_background(writer: JsonlEventWriter, event: TelemetryEvent) -> None:
+def record_event_background(
+    writer: JsonlEventWriter,
+    event: TelemetryEvent,
+    pg_writer: Optional[Any] = None,
+) -> None:
     """
     Schedules an asynchronous append of the telemetry event without blocking.
-    Holds a strong reference in a module-level set until done to avoid garbage collection.
+    Holds strong references in a module-level set until done to avoid garbage collection.
+
+    Inputs:
+    - writer: JsonlEventWriter writing event to disk.
+    - event: TelemetryEvent instance with metrics.
+    - pg_writer: Optional PgEventWriter writing event to PostgreSQL.
     """
-    task = asyncio.create_task(writer.append_async(event))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    jsonl_task = asyncio.create_task(writer.append_async(event))
+    _background_tasks.add(jsonl_task)
+    jsonl_task.add_done_callback(_background_tasks.discard)
+
+    if pg_writer is not None:
+        async def _safe_pg_write() -> None:
+            try:
+                await pg_writer.write(event)
+            except Exception as exc:
+                logger.warning(
+                    "Uncaught error in background Postgres write task: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+
+        pg_task = asyncio.create_task(_safe_pg_write())
+        _background_tasks.add(pg_task)
+        pg_task.add_done_callback(_background_tasks.discard)
 
 
 def build_telemetry_event(

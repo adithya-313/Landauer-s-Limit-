@@ -60,6 +60,7 @@ from circuit_breaker import get_circuit_breaker
 # Phase 9: Admin routes for live engine reload
 from admin_routes import EngineAdmin, init_admin, router as admin_router
 from payload_guard import check_payload_size
+from pg_writer import PgEventWriter
 from tenants import (
     default_tenants_path,
     get_tenant_context,
@@ -88,6 +89,10 @@ _router = EngineRouter.from_specs(_engine_specs)
 
 # Phase 9: Global JSONL event writer
 _events_writer = JsonlEventWriter(default_events_path())
+
+# Phase 9: Global Postgres telemetry event writer
+_pg_dsn = os.environ.get("LANDAUER_PG_DSN", "").strip()
+_pg_writer = PgEventWriter(dsn=_pg_dsn if _pg_dsn else None)
 
 # Phase 9: Authenticated tenant store
 _tenants_path = default_tenants_path()
@@ -253,6 +258,21 @@ async def on_startup():
 
     # Start the single background queue worker
     asyncio.create_task(queue_worker())
+
+    # Phase 9: Initialize Postgres event writer
+    await _pg_writer.start()
+    if _pg_dsn:
+        logger.info("Postgres dual-write enabled")
+    else:
+        logger.info("disabled (LANDAUER_PG_DSN unset)")
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """
+    Closes the Postgres event writer connection pool on server shutdown.
+    """
+    await _pg_writer.close()
 
 async def _handle_request(item):
     """
@@ -486,7 +506,7 @@ async def create_chat_completion(
             tenant_id=tenant_id,
         )
         observe_event(hit_event)
-        record_event_background(_events_writer, hit_event)
+        record_event_background(_events_writer, hit_event, _pg_writer)
         _safe_dec_inflight()
 
         return JSONResponse(
@@ -575,7 +595,7 @@ async def create_chat_completion(
                 tenant_id=tenant_id,
             )
             observe_event(miss_event)
-            record_event_background(_events_writer, miss_event)
+            record_event_background(_events_writer, miss_event, _pg_writer)
             dec_inflight()
 
             # Signal the end of the SSE stream.

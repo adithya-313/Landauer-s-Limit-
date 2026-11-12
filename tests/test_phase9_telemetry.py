@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import fnmatch
 import json
@@ -347,5 +348,111 @@ def test_build_telemetry_event_error_outcome() -> None:
     )
     assert event.outcome == "error"
     assert event.engine == "colab_cloud"
+
+
+def test_record_event_background_dual_write_independence() -> None:
+    """Verifies JSONL append completes within 1s even if Postgres write blocks forever."""
+    async def _test() -> None:
+        import time
+        from telemetry import JsonlEventWriter, record_event_background, build_telemetry_event
+
+        class FakeJsonlWriter(JsonlEventWriter):
+            def __init__(self) -> None:
+                self.appended: list[Any] = []
+
+            async def append_async(self, event: Any) -> bool:
+                self.appended.append(event)
+                return True
+
+        class BlockingPgWriter:
+            def __init__(self) -> None:
+                self.hang_event = asyncio.Event()
+
+            async def write(self, event: Any) -> str:
+                await self.hang_event.wait()
+                return "ok"
+
+        jsonl_writer = FakeJsonlWriter()
+        pg_writer = BlockingPgWriter()
+        event = build_telemetry_event(
+            run_id="run_dual_test",
+            engine="vllm_local",
+            concurrency=1,
+            request_tier="premium",
+            agent_enabled=False,
+            cache_hit=True,
+            ttft_ms=5.0,
+        )
+
+        t_start = time.monotonic()
+        record_event_background(jsonl_writer, event, pg_writer=pg_writer)
+
+        # Allow the event loop to schedule the tasks
+        for _ in range(50):
+            if len(jsonl_writer.appended) > 0:
+                break
+            await asyncio.sleep(0.01)
+
+        elapsed = time.monotonic() - t_start
+        assert elapsed < 1.0
+        assert len(jsonl_writer.appended) == 1
+        assert jsonl_writer.appended[0] is event
+
+        # Clean up blocked task
+        pg_writer.hang_event.set()
+        await asyncio.sleep(0.02)
+
+    asyncio.run(_test())
+
+
+def test_record_event_background_pg_exception_handled() -> None:
+    """Verifies that an exception in Postgres write does not prevent JSONL write or escape."""
+    async def _test() -> None:
+        from telemetry import (
+            JsonlEventWriter,
+            _background_tasks,
+            build_telemetry_event,
+            record_event_background,
+        )
+
+        class FakeJsonlWriter(JsonlEventWriter):
+            def __init__(self) -> None:
+                self.appended: list[Any] = []
+
+            async def append_async(self, event: Any) -> bool:
+                self.appended.append(event)
+                return True
+
+        class CrashingPgWriter:
+            async def write(self, event: Any) -> str:
+                raise RuntimeError("Simulated Postgres writer crash")
+
+        jsonl_writer = FakeJsonlWriter()
+        pg_writer = CrashingPgWriter()
+        event = build_telemetry_event(
+            run_id="run_crash_test",
+            engine="vllm_local",
+            concurrency=1,
+            request_tier="free",
+            agent_enabled=False,
+            cache_hit=False,
+            ttft_ms=10.0,
+        )
+
+        record_event_background(jsonl_writer, event, pg_writer=pg_writer)
+
+        # Allow background tasks to run and settle
+        await asyncio.sleep(0.05)
+
+        assert len(jsonl_writer.appended) == 1
+        assert jsonl_writer.appended[0] is event
+
+        # Verify no tasks in _background_tasks hold unhandled exceptions
+        for task in list(_background_tasks):
+            if task.done():
+                assert task.exception() is None
+
+    asyncio.run(_test())
+
 
 
