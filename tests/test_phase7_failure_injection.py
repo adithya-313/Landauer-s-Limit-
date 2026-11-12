@@ -9,25 +9,47 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 import uuid
 
+import httpx
 import pytest
 
+import circuit_breaker
 import failure_injection
 from failure_injection import FAILURE_SCENARIOS, inject_failure
 import protective_actions
 
 
 @pytest.fixture(autouse=True)
-def isolate_action_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolates actions_taken.jsonl and ground_truth.jsonl to temporary paths."""
+def isolate_action_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Isolates actions_taken.jsonl and ground_truth.jsonl to temporary paths, resets circuit breakers, and injects API key."""
     temp_ground_truth = tmp_path / "ground_truth.jsonl"
     temp_actions_log = tmp_path / "actions_taken.jsonl"
 
     monkeypatch.setattr(failure_injection, "GROUND_TRUTH_PATH", temp_ground_truth)
     monkeypatch.setattr(failure_injection, "ACTIONS_LOG", temp_actions_log)
     monkeypatch.setattr(protective_actions, "ACTIONS_LOG", temp_actions_log)
+
+    # Reset circuit breakers to clear any tripped state from previous tests
+    circuit_breaker._breakers.clear()
+
+    # Inject API key into httpx calls made by failure injection
+    orig_post = httpx.AsyncClient.post
+
+    async def authed_post(self, url, *args, **kwargs):
+        headers = dict(kwargs.get("headers") or {})
+        if "X-API-Key" not in headers and "Authorization" not in headers:
+            headers["X-API-Key"] = os.environ.get("LANDAUER_API_KEY", "")
+        kwargs["headers"] = headers
+        return await orig_post(self, url, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", authed_post)
+
+    yield
+
+    circuit_breaker._breakers.clear()
 
 
 @pytest.mark.parametrize("scenario_name", FAILURE_SCENARIOS)
