@@ -80,6 +80,7 @@ def test_guardrail_unexpected_error_fails_open(client: TestClient, monkeypatch: 
         raise RuntimeError("Simulated unexpected guardrail crash")
 
     monkeypatch.setattr(gateway._guardrail_instance, "check", broken_check)
+    monkeypatch.setattr(gateway, "observe_event", lambda ev: None)
 
     # Mock semantic cache hit so fail-open returns immediately without blocking on background queue worker
     async def fake_check_cache(messages: list) -> dict:
