@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-and-integration:
+    name: unit-and-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 1 checkout
+        uses: actions/checkout@v4
+
+      - name: 2 setup-python with pip cache
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 3 install torch and CI dependencies
+        run: |
+          pip install --no-cache-dir torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-ci.txt
+
+      - name: 4 make lint
+        run: make lint
+
+      - name: 5 make typecheck
+        run: make typecheck
+
+      - name: 6 restore ONNX and Hugging Face cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            all-MiniLM-L6-v2.onnx
+            ~/.cache/huggingface
+          key: onnx-model-${{ hashFiles('micro_lab.py', 'requirements-ci.txt') }}
+
+      - name: 7 export ONNX model if missing
+        run: |
+          if [ ! -f all-MiniLM-L6-v2.onnx ]; then
+            python -c "from transformers import AutoTokenizer; import micro_lab; m = 'sentence-transformers/all-MiniLM-L6-v2'; AutoTokenizer.from_pretrained(m); micro_lab.load_onnx_model(m, 'all-MiniLM-L6-v2.onnx')"
+          fi
+
+      - name: 8 make test-ci
+        run: make test-ci
