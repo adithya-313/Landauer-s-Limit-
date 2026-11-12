@@ -108,3 +108,5 @@ To reproduce the full containerized smoke test locally:
    `guardrail.GUARDRAIL_TIMEOUT` is currently set to `10.0` (a development value, violating Ground Rule 2). The empirical derivation measured during Phase 3 benchmarking is:
    $$\text{Derivation} = 65.32\text{ ms} \times 1.5 = 97.98\text{ ms}$$
    Updating this constant is deferred until Phase 11.
+3. failure_injection.py (frozen Phase 7) cannot pass standalone on current main: its httpx requests carry no X-API-Key (401 since Phase 9 auth), and its guardrail_timeout scenario sleeps 0.2 s against GUARDRAIL_TIMEOUT = 10.0. tests/test_phase7_failure_injection.py works around both without editing the script (injects the key into httpx.AsyncClient.post, sets GUARDRAIL_TIMEOUT to 0.05, clears circuit_breaker._breakers between tests). Phase 29 must account for this before relying on the script.
+4. The Phase 1 red-run proof added a 201st record (count check failed), not a duplicate ID.
