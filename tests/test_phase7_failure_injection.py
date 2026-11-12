@@ -35,6 +35,10 @@ def isolate_action_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Reset circuit breakers to clear any tripped state from previous tests
     circuit_breaker._breakers.clear()
 
+    # Ensure guardrail timeout SLA triggers promptly during guardrail_timeout scenario
+    import guardrail
+    monkeypatch.setattr(guardrail, "GUARDRAIL_TIMEOUT", 0.05)
+
     # Inject API key into httpx calls made by failure injection
     orig_post = httpx.AsyncClient.post
 
