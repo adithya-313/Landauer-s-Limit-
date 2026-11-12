@@ -81,6 +81,12 @@ def test_guardrail_unexpected_error_fails_open(client: TestClient, monkeypatch: 
 
     monkeypatch.setattr(gateway._guardrail_instance, "check", broken_check)
 
+    # Mock semantic cache hit so fail-open returns immediately without blocking on background queue worker
+    async def fake_check_cache(messages: list) -> dict:
+        return {"choices": [{"message": {"role": "assistant", "content": "cached response"}}]}
+
+    monkeypatch.setattr(gateway._cache_instance, "check_cache", fake_check_cache)
+
     payload = {
         "model": "test-model",
         "messages": [{"role": "user", "content": "hello"}],
