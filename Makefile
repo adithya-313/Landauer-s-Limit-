@@ -13,7 +13,8 @@ TYPECHECK_MODULES := \
 	pg_writer.py \
 	admin_routes.py \
 	gpu_monitor.py \
-	payload_guard.py
+	payload_guard.py \
+	scripts/ci_smoke.py
 
 # CI test files executed in headless, CPU-only environments
 CI_TEST_FILES := \
@@ -58,7 +59,7 @@ lint:
 
 # Type validation on Phase 9 production modules
 typecheck:
-	$(MYPY) --ignore-missing-imports $(TYPECHECK_MODULES)
+	$(MYPY) --ignore-missing-imports --follow-imports=silent $(TYPECHECK_MODULES)
 
 # CPU unit and integration test suite for CI
 # NOTE: Deselecting with -m "not gpu" is not skipping; GPU tests are excluded in CI

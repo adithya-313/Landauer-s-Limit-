@@ -43,3 +43,8 @@ report.html
 !archive/
 !archive/**
 
+# Phase 10 CI artifacts
+ci-models/
+deploy/ci-gateway-config/tenants.yaml
+
+

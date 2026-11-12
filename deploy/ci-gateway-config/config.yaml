@@ -1,0 +1,12 @@
+# CI engine configuration for Landauer containerized gateway.
+# Exactly one engine is defined: id vllm_local, type vllm, pointing to http://llamacpp:8080/v1.
+# Why: the llamacpp adapter in this repository speaks Ollama's /api/generate format,
+# whereas llama-server provides an OpenAI-compatible /v1/chat/completions endpoint that the
+# vllm adapter already consumes; routing through the vllm adapter satisfies Ground Rule 10
+# (no production adapter code changes).
+
+engines:
+  - id: vllm_local
+    type: vllm
+    url: http://llamacpp:8080/v1
+    tier: premium

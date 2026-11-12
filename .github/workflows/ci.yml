@@ -50,3 +50,109 @@ jobs:
 
       - name: 8 make test-ci
         run: make test-ci
+
+  stack-smoke:
+    name: stack-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 1 checkout
+        uses: actions/checkout@v4
+
+      - name: 2 setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 3 install dependencies
+        # Installs httpx and pyyaml for credential generation and smoke execution
+        run: pip install httpx pyyaml
+
+      - name: 4 generate credentials and configuration
+        # Generates ephemeral secrets, masks them in GitHub Actions logs,
+        # writes .env and the CI tenants.yaml mapping the hashed API key.
+        run: |
+          python3 -c '
+          import secrets
+          import hashlib
+          import yaml
+          import os
+
+          pg_pass = secrets.token_urlsafe(24)
+          gf_pass = secrets.token_urlsafe(24)
+          api_key = secrets.token_urlsafe(32)
+
+          for s in (pg_pass, gf_pass, api_key):
+              print(f"::add-mask::{s}")
+
+          with open(".env", "w", encoding="utf-8") as f:
+              f.write(f"POSTGRES_PASSWORD={pg_pass}\n")
+              f.write(f"GF_SECURITY_ADMIN_PASSWORD={gf_pass}\n")
+              f.write(f"LANDAUER_API_KEY={api_key}\n")
+
+          key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+          os.makedirs("deploy/ci-gateway-config", exist_ok=True)
+          tenants_data = {
+              "tenants": [
+                  {
+                      "tenant_id": "ci_smoke_tenant",
+                      "tier": "premium",
+                      "key_sha256": key_hash,
+                  }
+              ]
+          }
+          with open("deploy/ci-gateway-config/tenants.yaml", "w", encoding="utf-8") as f:
+              yaml.dump(tenants_data, f, default_flow_style=False)
+          '
+          mkdir -p telemetry && chmod 777 telemetry
+
+      - name: 5 restore CI model cache
+        # Caches the tiny CPU GGUF model across CI runs to avoid re-downloading
+        uses: actions/cache@v4
+        id: model-cache
+        with:
+          path: ./ci-models
+          key: ci-model-qwen2.5-0.5b-instruct-q4_k_m-v1
+
+      - name: 6 fetch and verify CI model
+        # Downloads Qwen2.5-0.5B-Instruct-GGUF if not cached and verifies sha256 checksum.
+        # HF URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf
+        # Revision: 9217f5db79a29953eb74d5343926648285ec7e67
+        # Expected SHA256: 74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db
+        run: |
+          mkdir -p ci-models
+          MODEL_PATH="./ci-models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+          EXPECTED_SHA="74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          if [ ! -f "$MODEL_PATH" ]; then
+            echo "Downloading model from Hugging Face..."
+            curl -sSL "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf" -o "$MODEL_PATH"
+          fi
+          echo "$EXPECTED_SHA  $MODEL_PATH" | sha256sum -c -
+
+      - name: 7 build Docker images
+        # Separate build step so image compilation does not count against startup limit.
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml build
+
+      - name: 8 start stack
+        # Timed startup with healthcheck barrier.
+        # LIMIT derivation from user laptop (WSL2 Docker):
+        # Run 1: 75.45s, Run 2: 92.70s, Run 3: 50.50s.
+        # Slowest run: 92.70s. Formula: 3 * 92.70s = 278.11s, rounded up to next 10s = 280s.
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up --wait --wait-timeout 280
+
+      - name: 9 run CI smoke tests
+        # Validates end-to-end gateway SSE streaming completion and Grafana database health.
+        run: python3 scripts/ci_smoke.py
+
+      - name: 10 diagnostic container logs on failure
+        # Dumps container status and recent logs to simplify debugging on CI failures.
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail 100
+
+      - name: 11 clean up stack and volumes
+        # Teardown stack and purge anonymous and named volumes.
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down --volumes
