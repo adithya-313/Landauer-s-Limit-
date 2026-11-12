@@ -7,6 +7,7 @@ exit code 0, formatting failure outputs to aid in debugging Phase 1 and Phase 6.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -33,9 +34,13 @@ def test_legacy_script(script_rel_path: str, phase_id: str) -> None:
     script_path = REPO_ROOT / script_rel_path
     assert script_path.is_file(), f"Script not found at {script_path}"
 
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO_ROOT)
+
     proc = subprocess.run(
         [sys.executable, str(script_path)],
         cwd=str(REPO_ROOT),
+        env=env,
         capture_output=True,
         text=True,
         timeout=60,
