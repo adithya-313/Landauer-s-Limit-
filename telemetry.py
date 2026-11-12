@@ -244,6 +244,13 @@ landauer_stream_tokens_total = Counter(
     registry=metrics_registry,
 )
 
+landauer_pg_writes_total = Counter(
+    "landauer_pg_writes_total",
+    "Total Postgres telemetry write operations by outcome.",
+    ["result"],
+    registry=metrics_registry,
+)
+
 landauer_inflight_requests = Gauge(
     "landauer_inflight_requests",
     "Number of requests currently executing in the gateway.",
