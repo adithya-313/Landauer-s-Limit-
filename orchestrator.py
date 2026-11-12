@@ -17,6 +17,7 @@ The CLI loops over DEFAULT_CONCURRENCY_LEVELS unless --concurrency is given.
 import argparse
 import asyncio
 import json
+import os
 import random
 import subprocess
 import sys
@@ -35,7 +36,13 @@ import httpx
 # loop over these. NOT passed into run_benchmark itself.
 DEFAULT_CONCURRENCY_LEVELS = [1, 10, 50, 100]
 
-GATEWAY_URL = "http://127.0.0.1:8000/v1/chat/completions"
+GATEWAY_URL = os.environ.get(
+    "LANDAUER_GATEWAY_URL", "http://127.0.0.1:8080/v1/chat/completions"
+)
+
+API_KEY = os.environ.get("LANDAUER_API_KEY", "").strip()
+if not API_KEY:
+    sys.exit("[orchestrator] Error: LANDAUER_API_KEY environment variable is missing or empty.")
 
 # Pool of diverse prompts to prevent semantic cache from trivially swallowing all load test traffic.
 _BENCH_PROMPTS = [
@@ -166,7 +173,8 @@ async def _send_single_request(
     ttft_seconds = None
 
     try:
-        async with session.stream("POST", GATEWAY_URL, json=payload) as response:
+        headers = {"X-API-Key": API_KEY}
+        async with session.stream("POST", GATEWAY_URL, json=payload, headers=headers) as response:
             status_code = response.status_code
             async for chunk in response.aiter_bytes():
                 if ttft_seconds is None and chunk:

@@ -14,6 +14,7 @@ Run it with:  python test_phase2.py
 """
 
 import json
+import os
 import time
 import threading
 import sys
@@ -80,7 +81,10 @@ def test_normal_request():
             {"role": "user", "content": "Hello, how are you?"},
         ],
     }
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": os.environ.get("LANDAUER_API_KEY", ""),
+    }
 
     response = requests.post(url, json=payload, headers=headers)
 
@@ -119,6 +123,7 @@ def test_oversized_request():
     headers = {
         "Content-Type": "application/json",
         "Content-Length": str(len(huge_body)),
+        "X-API-Key": os.environ.get("LANDAUER_API_KEY", ""),
     }
 
     response = requests.post(url, data=huge_body, headers=headers)
@@ -158,6 +163,7 @@ def test_missing_content_length():
     conn.putheader("Host", f"{HOST}:{PORT}")
     conn.putheader("Content-Type", "application/json")
     conn.putheader("Transfer-Encoding", "chunked")
+    conn.putheader("X-API-Key", os.environ.get("LANDAUER_API_KEY", ""))
     # Note: NO Content-Length header.
     conn.endheaders()
 

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import httpx
 import json
 
@@ -11,8 +12,9 @@ async def send_req(client, prompt, tier, engine):
         "max_tokens": 100
     }
     print(f"[{engine}] Sending {tier} request: {prompt}")
+    headers = {"X-API-Key": os.environ.get("LANDAUER_API_KEY", "")}
     try:
-        async with client.stream("POST", "/v1/chat/completions", json=payload) as response:
+        async with client.stream("POST", "/v1/chat/completions", json=payload, headers=headers) as response:
             async for line in response.aiter_lines():
                 if "error" in line.lower():
                     print(f"[{engine}] ERROR in stream: {line}")

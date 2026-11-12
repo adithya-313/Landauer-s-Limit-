@@ -14,6 +14,7 @@ Run with:  python test_phase3.py
 """
 
 import json
+import os
 import time
 import threading
 import sys
@@ -86,7 +87,10 @@ def test_safety(base_url: str) -> bool:
             },
         ],
     }
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": os.environ.get("LANDAUER_API_KEY", ""),
+    }
 
     response = requests.post(url, json=payload, headers=headers)
 
@@ -120,7 +124,10 @@ def test_concurrency(base_url: str) -> bool:
             {"role": "user", "content": "What is the capital of France?"},
         ],
     }
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": os.environ.get("LANDAUER_API_KEY", ""),
+    }
 
     def send_request() -> int:
         resp = requests.post(url, json=payload, headers=headers)
@@ -166,7 +173,10 @@ def test_fail_open_timeout(base_url: str) -> bool:
                 {"role": "user", "content": "Hello, how are you today?"},
             ],
         }
-        headers = {"Content-Type": "application/json"}
+        headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": os.environ.get("LANDAUER_API_KEY", ""),
+    }
 
         response = requests.post(url, json=payload, headers=headers)
 
