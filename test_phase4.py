@@ -23,6 +23,7 @@ that the vector similarity test passes deterministically (we control the
 cosine distance by controlling where the vectors point).
 """
 
+import os
 import time
 import threading
 import sys
@@ -170,7 +171,10 @@ def send_chat_completion(messages: list) -> requests.Response:
     """Helper to POST /v1/chat/completions."""
     url = f"{BASE_URL}/v1/chat/completions"
     payload = {"model": "test-model", "messages": messages}
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": os.environ.get("LANDAUER_API_KEY", ""),
+    }
     return requests.post(url, json=payload, headers=headers)
 
 

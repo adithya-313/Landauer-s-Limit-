@@ -1,4 +1,5 @@
 import asyncio
+import os
 import httpx
 import time
 
@@ -15,6 +16,7 @@ async def send_request(prompt: str, delay: float = 0):
                     "messages": [{"role": "user", "content": prompt}],
                     "engine": "custom_runtime"
                 },
+                headers={"X-API-Key": os.environ.get("LANDAUER_API_KEY", "")},
                 timeout=120.0
             )
             content = response.text

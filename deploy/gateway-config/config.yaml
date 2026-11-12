@@ -1,0 +1,17 @@
+# Deployment engine configuration for Landauer containerized gateway.
+# All engine URLs route to the host machine via host.docker.internal.
+# custom_runtime is excluded because it requires host GPU PyTorch runtime and is not supported in the CPU container.
+
+engines:
+  - id: vllm_local
+    type: vllm
+    url: http://host.docker.internal:8001/v1
+    tier: premium
+  - id: llamacpp_local
+    type: llamacpp
+    url: http://host.docker.internal:11434
+    tier: free
+  - id: colab_cloud
+    type: colab
+    url: http://host.docker.internal:8888/v1
+    tier: best_effort

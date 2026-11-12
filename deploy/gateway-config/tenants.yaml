@@ -1,0 +1,4 @@
+tenants:
+  - tenant_id: local_dev
+    tier: premium
+    key_sha256: f5ab25eec8fa0b33bdbf04483ee53c594b61d3cc161277e67b120b22ca22fe3b

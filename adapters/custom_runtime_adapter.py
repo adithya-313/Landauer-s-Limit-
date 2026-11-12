@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import logging
 import asyncio
 import queue
-from typing import AsyncIterator, Dict, Any
-from runtime_core.batch_engine import BatchEngine
+from typing import TYPE_CHECKING, AsyncIterator, Dict, Any
+
+if TYPE_CHECKING:
+    from runtime_core.batch_engine import BatchEngine
 
 logger = logging.getLogger("CustomRuntimeAdapter")
 
 # Single shared instance across all requests for continuous batching
-_shared_engine = None
+_shared_engine: BatchEngine | None = None
 
 def get_shared_engine() -> BatchEngine:
     """
@@ -19,6 +23,8 @@ def get_shared_engine() -> BatchEngine:
     """
     global _shared_engine
     if _shared_engine is None:
+        from runtime_core.batch_engine import BatchEngine
+
         logger.info("Initializing and starting shared BatchEngine...")
         _shared_engine = BatchEngine()
         _shared_engine.start()

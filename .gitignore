@@ -28,6 +28,9 @@ power_draw_*.log
 semantic_cache_events.jsonl
 actions_taken.jsonl
 
+# Phase 9 telemetry events
+telemetry/
+
 # Scratch files
 request.json
 git_files.txt

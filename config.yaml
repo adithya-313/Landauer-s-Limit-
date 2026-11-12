@@ -1,0 +1,16 @@
+engines:
+  - id: vllm_local
+    type: vllm
+    url: http://127.0.0.1:8001/v1
+    tier: premium
+  - id: llamacpp_local
+    type: llamacpp
+    url: http://localhost:11434
+    tier: free
+  - id: colab_cloud
+    type: colab
+    url: http://localhost:8888/v1
+    tier: best_effort
+  - id: custom_runtime
+    type: custom_runtime
+    tier: experimental
