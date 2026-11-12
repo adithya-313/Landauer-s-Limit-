@@ -302,3 +302,31 @@ def test_pg_writer_prometheus_counters() -> None:
 
     asyncio.run(_test())
 
+
+def test_pg_writer_pending_released() -> None:
+    """Verifies that pending count is decremented in finally so sequential writes succeed with max_pending=1."""
+    async def _test() -> None:
+        clock = FakeClock()
+        fake_pool = FakePool()
+        factory = FakePoolFactory(pool=fake_pool)
+        event = _make_dummy_event()
+
+        writer = PgEventWriter(
+            dsn="postgresql://user:pass@localhost:5432/db",
+            pool_factory=factory,
+            clock=clock,
+            max_pending=1,
+        )
+        await writer.start()
+
+        results = []
+        for _ in range(3):
+            res = await writer.write(event)
+            results.append(res)
+
+        assert results == ["ok", "ok", "ok"]
+        await writer.close()
+
+    asyncio.run(_test())
+
+
