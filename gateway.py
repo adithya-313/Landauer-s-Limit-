@@ -60,7 +60,12 @@ from circuit_breaker import get_circuit_breaker
 # Phase 9: Admin routes for live engine reload
 from admin_routes import EngineAdmin, init_admin, router as admin_router
 from payload_guard import check_payload_size
-from tenants import default_tenants_path, load_tenants, make_api_key_middleware
+from tenants import (
+    default_tenants_path,
+    get_tenant_context,
+    load_tenants,
+    make_api_key_middleware,
+)
 
 # Phase 9: Telemetry & Prometheus metrics
 from telemetry import (
@@ -379,8 +384,7 @@ async def create_chat_completion(
     requested_engine = request_body.engine or "vllm_local"
 
     # Determine authoritative tenant tier from authenticated request state
-    effective_tier: str = getattr(request.state, "tier", "free")
-    tenant_id: Optional[str] = getattr(request.state, "tenant_id", None)
+    tenant_id, effective_tier = get_tenant_context(request)
     if request_body.tier != effective_tier:
         logger.info(
             "Client requested tier '%s', but authoritative tenant tier is '%s'.",

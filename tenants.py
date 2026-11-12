@@ -62,6 +62,34 @@ class TenantStore:
         return matched
 
 
+def get_tenant_context(request: Any) -> tuple[str, str]:
+    """
+    Extracts the authenticated tenant ID and tier from the request state.
+
+    Inputs:
+    - request: The incoming HTTP request or request-like object.
+
+    Returns:
+    - tuple[str, str] of (tenant_id, tier).
+
+    Errors:
+    - Raises RuntimeError("tenant context missing — auth middleware not applied")
+      if request.state is absent or either tenant_id or tier is absent or None.
+    """
+    if not hasattr(request, "state"):
+        raise RuntimeError("tenant context missing — auth middleware not applied")
+    state = request.state
+    if not hasattr(state, "tenant_id") or not hasattr(state, "tier"):
+        raise RuntimeError("tenant context missing — auth middleware not applied")
+
+    tenant_id = state.tenant_id
+    tier = state.tier
+    if tenant_id is None or tier is None:
+        raise RuntimeError("tenant context missing — auth middleware not applied")
+
+    return str(tenant_id), str(tier)
+
+
 def default_tenants_path() -> Path:
     """
     Returns the filesystem path to the tenants configuration file.

@@ -348,3 +348,43 @@ def test_telemetry_event_preserves_tenant_id() -> None:
     serialized = event.to_json_dict()
     assert serialized["tenant_id"] == "tenant_alpha"
 
+
+def test_get_tenant_context_success() -> None:
+    """Verifies that get_tenant_context returns (tenant_id, tier) when request state is populated."""
+    from types import SimpleNamespace
+    from tenants import get_tenant_context
+
+    dummy_request = SimpleNamespace(state=SimpleNamespace(tenant_id="tenant_123", tier="premium"))
+    tenant_id, tier = get_tenant_context(dummy_request)
+    assert tenant_id == "tenant_123"
+    assert tier == "premium"
+
+
+def test_get_tenant_context_missing_raises() -> None:
+    """Verifies that get_tenant_context raises RuntimeError when request.state or attributes are missing."""
+    from types import SimpleNamespace
+    from tenants import get_tenant_context
+
+    expected_msg = "tenant context missing — auth middleware not applied"
+
+    # Case 1: No state attribute
+    with pytest.raises(RuntimeError, match=expected_msg):
+        get_tenant_context(SimpleNamespace())
+
+    # Case 2: state has only tenant_id
+    with pytest.raises(RuntimeError, match=expected_msg):
+        get_tenant_context(SimpleNamespace(state=SimpleNamespace(tenant_id="tenant_123")))
+
+    # Case 3: state has only tier
+    with pytest.raises(RuntimeError, match=expected_msg):
+        get_tenant_context(SimpleNamespace(state=SimpleNamespace(tier="free")))
+
+    # Case 4: state.tenant_id is None
+    with pytest.raises(RuntimeError, match=expected_msg):
+        get_tenant_context(SimpleNamespace(state=SimpleNamespace(tenant_id=None, tier="free")))
+
+    # Case 5: state.tier is None
+    with pytest.raises(RuntimeError, match=expected_msg):
+        get_tenant_context(SimpleNamespace(state=SimpleNamespace(tenant_id="tenant_123", tier=None)))
+
+
