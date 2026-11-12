@@ -551,11 +551,7 @@ async def create_chat_completion(
             headers["X-Guardrail-Degraded"] = "true"
         logger.info("Cache HIT for: %.50s", last_user_message)
 
-        hit_duration_ms = (
-            (time.monotonic() - stream_timer._t_start) * 1000.0
-            if stream_timer._t_start is not None
-            else 0.0
-        )
+        hit_duration_ms = stream_timer.elapsed_ms()
         hit_event = build_telemetry_event(
             run_id=run_id,
             engine=requested_engine,
@@ -607,6 +603,7 @@ async def create_chat_completion(
         Async generator that yields SSE-encoded tokens from the engine router
         and caches the completed response after the stream ends.
         """
+        inc_inflight()
         full_content = ""
         stream_failed = False
 
@@ -655,7 +652,7 @@ async def create_chat_completion(
             )
             observe_event(miss_event)
             record_event_background(_events_writer, miss_event)
-            _safe_dec_inflight()
+            dec_inflight()
 
             # Signal the end of the SSE stream.
             yield "data: [DONE]\n\n"
@@ -691,6 +688,7 @@ async def create_chat_completion(
     if degraded:
         stream_headers["X-Guardrail-Degraded"] = "true"
 
+    _safe_dec_inflight()
     return StreamingResponse(
         streaming_generator(),
         media_type="text/event-stream",

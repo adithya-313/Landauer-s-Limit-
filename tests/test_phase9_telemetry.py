@@ -82,6 +82,21 @@ def test_stream_timer_zero_tokens() -> None:
     assert timer.tokens_per_sec is None
 
 
+def test_stream_timer_elapsed_ms() -> None:
+    """Verifies that elapsed_ms calculates time since start in milliseconds."""
+    clock = ScriptedClock([10.0, 10.35])
+    timer = StreamTimer(clock=clock)
+    timer.start()
+    assert timer.elapsed_ms() == pytest.approx(350.0)
+
+
+def test_stream_timer_elapsed_ms_before_start_raises() -> None:
+    """Verifies that calling elapsed_ms before start raises RuntimeError."""
+    timer = StreamTimer()
+    with pytest.raises(RuntimeError, match="has not been called"):
+        timer.elapsed_ms()
+
+
 def _make_dummy_event(run_id: str = "run_1") -> TelemetryEvent:
     return TelemetryEvent(
         run_id=run_id,

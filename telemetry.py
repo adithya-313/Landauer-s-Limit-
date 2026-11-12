@@ -70,6 +70,20 @@ class StreamTimer:
         """Records the completion of the streaming response."""
         self._t_finish = self._clock()
 
+    def elapsed_ms(self) -> float:
+        """
+        Elapsed time in milliseconds since start() was called.
+
+        Returns:
+        - Milliseconds elapsed as a float.
+
+        Errors:
+        - Raises RuntimeError if start() was not called prior to elapsed_ms().
+        """
+        if self._t_start is None:
+            raise RuntimeError("StreamTimer.start() has not been called")
+        return (self._clock() - self._t_start) * 1000.0
+
     @property
     def token_count(self) -> int:
         """Number of streamed pieces received."""
