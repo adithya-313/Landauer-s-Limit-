@@ -1,0 +1,13 @@
+onnxruntime==1.24.2
+faiss-cpu==1.14.3
+transformers==5.12.1
+numpy==1.26.4
+fastapi==0.115.12
+uvicorn==0.32.1
+pydantic==2.13.4
+httpx==0.27.2
+flashtext==2.7
+pyyaml==6.0.3
+prometheus-client==0.24.1
+asyncpg==0.31.0
+

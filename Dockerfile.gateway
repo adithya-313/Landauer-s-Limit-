@@ -1,0 +1,83 @@
+# syntax=docker/dockerfile:1
+
+# ---------------------------------------------------------------------------
+# STAGE 1: Export ONNX model and cache tokenizer
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS export
+
+WORKDIR /export
+
+RUN pip install --no-cache-dir \
+    torch==2.5.1+cpu \
+    --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir \
+    transformers==5.12.1 \
+    onnxruntime==1.24.2 \
+    onnx \
+    numpy==1.26.4
+
+COPY micro_lab.py /export/
+
+ENV HF_HOME=/hf
+RUN python -c "\
+from transformers import AutoTokenizer;\
+import micro_lab;\
+model_name = 'sentence-transformers/all-MiniLM-L6-v2';\
+AutoTokenizer.from_pretrained(model_name);\
+micro_lab.load_onnx_model(model_name, '/export/all-MiniLM-L6-v2.onnx');\
+"
+
+# ---------------------------------------------------------------------------
+# STAGE 2: Slim CPU Runtime
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+RUN useradd -m -u 1000 appuser
+
+WORKDIR /app
+
+COPY requirements-gateway.txt /tmp/requirements-gateway.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-gateway.txt \
+    && rm /tmp/requirements-gateway.txt
+
+# Explicitly copy source files imported by gateway
+COPY gateway.py \
+     admin_routes.py \
+     admission_controller.py \
+     circuit_breaker.py \
+     decision_table.py \
+     engine_config.py \
+     gpu_monitor.py \
+     guardrail.py \
+     payload_guard.py \
+     pg_writer.py \
+     protective_actions.py \
+     request_queue.py \
+     semantic_cache.py \
+     telemetry.py \
+     tenants.py \
+     /app/
+
+COPY adapters /app/adapters
+
+# Copy exported ONNX model and cached HuggingFace tokenizer
+COPY --from=export /export/all-MiniLM-L6-v2.onnx /app/all-MiniLM-L6-v2.onnx
+COPY --from=export /hf /hf
+
+# Create necessary directories and configure permissions
+RUN mkdir -p /app/config /app/telemetry \
+    && chown -R appuser:appuser /app /hf
+
+USER appuser
+
+ENV HF_HOME=/hf \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    LANDAUER_CONFIG_PATH=/app/config/config.yaml \
+    LANDAUER_TENANTS_PATH=/app/config/tenants.yaml \
+    LANDAUER_EVENTS_PATH=/app/telemetry/gateway_events.jsonl
+
+EXPOSE 8080
+
+CMD ["uvicorn", "gateway:app", "--host", "0.0.0.0", "--port", "8080"]
+
