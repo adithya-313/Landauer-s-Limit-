@@ -21,12 +21,6 @@ import time
 
 import httpx
 
-GATEWAY_URL = "http://127.0.0.1:8080"
-GRAFANA_URL = "http://127.0.0.1:3000"
-CONFIG_FILE = Path("deploy/gateway-config/config.yaml")
-EVENTS_FILE = Path("telemetry/gateway_events.jsonl")
-
-
 def load_env() -> dict[str, str]:
     """Loads environment variables from os.environ and the local .env file."""
     env: dict[str, str] = dict(os.environ)
@@ -43,8 +37,18 @@ def load_env() -> dict[str, str]:
     return env
 
 
+_ENV = load_env()
+GATEWAY_URL = f"http://127.0.0.1:{_ENV.get('GATEWAY_HOST_PORT', '8080').strip() or '8080'}"
+GRAFANA_URL = f"http://127.0.0.1:{_ENV.get('GRAFANA_HOST_PORT', '3000').strip() or '3000'}"
+CONFIG_FILE = Path("deploy/gateway-config/config.yaml")
+EVENTS_FILE = Path("telemetry/gateway_events.jsonl")
+
+
 def main() -> None:
+    global GATEWAY_URL, GRAFANA_URL
     env = load_env()
+    GATEWAY_URL = f"http://127.0.0.1:{env.get('GATEWAY_HOST_PORT', '8080').strip() or '8080'}"
+    GRAFANA_URL = f"http://127.0.0.1:{env.get('GRAFANA_HOST_PORT', '3000').strip() or '3000'}"
     api_key = env.get("LANDAUER_API_KEY", "").strip()
     gf_password = env.get("GF_SECURITY_ADMIN_PASSWORD", "").strip()
 
