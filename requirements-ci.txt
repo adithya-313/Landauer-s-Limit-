@@ -1,0 +1,10 @@
+-r requirements-gateway.txt
+pytest==8.4.2
+requests==2.32.3
+ruff==0.15.12
+mypy==2.4.1
+onnx==1.20.1
+# NOTE: torch is not listed here; CI installs torch==2.5.1+cpu from the
+# dedicated PyTorch CPU wheel index (https://download.pytorch.org/whl/cpu)
+# to keep CI run times fast and avoid pulling multi-gigabyte CUDA binaries.
+

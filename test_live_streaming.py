@@ -34,6 +34,7 @@ from adapters.colab_adapter import ColabAdapter
 from adapters.custom_runtime_adapter import CustomRuntimeAdapter
 
 
+@pytest.mark.gpu
 @pytest.mark.asyncio
 async def test_vllm_adapter_live_streaming():
     """
@@ -61,6 +62,7 @@ async def test_vllm_adapter_live_streaming():
         await adapter.close()
 
 
+@pytest.mark.gpu
 @pytest.mark.asyncio
 async def test_llamacpp_adapter_live_streaming():
     """
@@ -88,6 +90,7 @@ async def test_llamacpp_adapter_live_streaming():
         await adapter.close()
 
 
+@pytest.mark.gpu
 @pytest.mark.asyncio
 async def test_colab_adapter_live_streaming():
     """
@@ -117,6 +120,7 @@ async def test_colab_adapter_live_streaming():
         await adapter.close()
 
 
+@pytest.mark.gpu
 @pytest.mark.asyncio
 async def test_custom_runtime_adapter_live_streaming():
     """

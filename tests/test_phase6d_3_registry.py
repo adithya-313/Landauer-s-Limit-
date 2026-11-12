@@ -3,7 +3,6 @@ import torch
 import dataclasses
 import queue
 from runtime_core.kv_cache_manager import KVCacheManager
-from runtime_core.prefix_hashing import compute_block_hashes
 
 @dataclasses.dataclass
 class MockState:
@@ -38,7 +37,7 @@ def run_tests():
     seqA_tokens = [i for i in range(48)]
     hashed = kv.register_prompt_blocks("A", seqA_tokens)
     
-    stateB = MockState(request_id="B", prompt_len=48)
+    MockState(request_id="B", prompt_len=48)
     hits = kv.acquire_prefix("B", seqA_tokens)
     
     blocksA = kv.page_table["A"]
@@ -67,7 +66,7 @@ def run_tests():
         "T3(a): freed registered blocks enter cached_free"
     )
     
-    stateC = MockState(request_id="C", prompt_len=48)
+    MockState(request_id="C", prompt_len=48)
     hitsC = kv.acquire_prefix("C", seqA_tokens)
     blocksC = kv.page_table["C"]
     
@@ -86,7 +85,7 @@ def run_tests():
         "T4(a): pool exhaustion reclaims cached_free blocks, clearing their hash fields"
     )
     
-    stateE = MockState(request_id="E")
+    MockState(request_id="E")
     hitsE = kv.acquire_prefix("E", seqA_tokens)
     check(
         hitsE == 0,
@@ -179,6 +178,9 @@ def run_tests():
     print(f"Total Cases Run: {total_cases}")
     print(f"Total Passed:    {passed_cases}")
     print(f"Total Failed:    {total_cases - passed_cases}")
+
+    if total_cases - passed_cases > 0:
+        sys.exit(1)
 
 if __name__ == "__main__":
     run_tests()

@@ -27,13 +27,10 @@ import os
 import time
 import threading
 import sys
-from typing import List, Dict, Optional
 from collections import OrderedDict
 
 import numpy as np
-import pytest
 import requests
-import uvicorn
 from uvicorn.config import Config
 from uvicorn.server import Server
 
@@ -131,7 +128,7 @@ def teardown_module():
     """Shut down the server after all tests finish."""
     global _server_thread
     if _server_thread:
-        print(f"\n[INFO] Shutting down server ...")
+        print("\n[INFO] Shutting down server ...")
         _server_thread.shutdown()
         _server_thread.join(timeout=5)
 
@@ -229,7 +226,7 @@ class TestDeterministicSemanticCache:
             f"got {header_2}"
         )
         print(f"  [STEP 2] Second request (Python 3.15): X-Cache={header_2}")
-        print(f"  [PASS] test_1_version_collision_defense")
+        print("  [PASS] test_1_version_collision_defense")
 
     def test_2_coreference_defense(self):
         """
@@ -270,7 +267,7 @@ class TestDeterministicSemanticCache:
             f"got {header_2}"
         )
         print(f"  [STEP 2] Java context: X-Cache={header_2}")
-        print(f"  [PASS] test_2_coreference_defense")
+        print("  [PASS] test_2_coreference_defense")
 
     def test_3_unknown_entity_bypass(self):
         """
@@ -290,4 +287,4 @@ class TestDeterministicSemanticCache:
             f"Expected MISS for unknown entity 'Rust', got {header}"
         )
         print(f"  [STEP 1] Unknown entity (Rust): X-Cache={header}")
-        print(f"  [PASS] test_3_unknown_entity_bypass")
+        print("  [PASS] test_3_unknown_entity_bypass")
