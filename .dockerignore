@@ -16,4 +16,6 @@ drift_eval_*.jsonl
 *.onnx
 .env
 docs/
+ci-models/
+
 

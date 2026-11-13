@@ -1,0 +1,36 @@
+# docker-compose.ci.yml
+# Compose override file for Phase 10 CI stack-smoke job.
+# Runs a lightweight CPU llama.cpp server serving Qwen2.5-0.5B-Instruct-GGUF
+# and mounts deploy/ci-gateway-config into the gateway container.
+
+services:
+  llamacpp:
+    image: ghcr.io/ggerganov/llama.cpp:server-b4600
+    command:
+      - "-m"
+      - "/ci-models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "-c"
+      - "512"
+      - "-n"
+      - "16"
+    volumes:
+      - ./ci-models:/ci-models:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  gateway:
+    volumes:
+      - ./deploy/ci-gateway-config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llamacpp:
+        condition: service_healthy
