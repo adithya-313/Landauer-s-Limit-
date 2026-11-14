@@ -52,7 +52,9 @@ LINT_FILES := \
 	validate.py \
 	tests/test_phase6d_1_hashing.py \
 	tests/test_phase6d_2_blocks.py \
-	tests/test_phase6d_3_registry.py
+	tests/test_phase6d_3_registry.py \
+	migrations/env.py \
+	$(wildcard migrations/versions/*.py)
 
 .PHONY: all lint typecheck test-ci test-gpu print-ci-files reproduce-report
 
