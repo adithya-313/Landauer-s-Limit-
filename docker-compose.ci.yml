@@ -5,7 +5,7 @@
 
 services:
   llamacpp:
-    image: ghcr.io/ggerganov/llama.cpp:server-b4600
+    image: ghcr.io/ggerganov/llama.cpp:server-b4600@sha256:85fa3adac6470022b49462fb3f4e0e75d37751c6fce70ebb902c4f0c071bab94
     command:
       - "-m"
       - "/ci-models/qwen2.5-0.5b-instruct-q4_k_m.gguf"

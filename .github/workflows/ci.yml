@@ -26,7 +26,7 @@ jobs:
       - name: 3 install torch and CI dependencies
         run: |
           pip install --no-cache-dir torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements-ci.txt
+          pip install -r requirements-ci.lock
 
       - name: 4 make lint
         run: make lint
@@ -40,7 +40,7 @@ jobs:
           path: |
             all-MiniLM-L6-v2.onnx
             ~/.cache/huggingface
-          key: onnx-model-${{ hashFiles('micro_lab.py', 'requirements-ci.txt') }}
+          key: onnx-model-${{ hashFiles('micro_lab.py', 'requirements-ci.lock') }}
 
       - name: 7 export ONNX model if missing
         run: |
