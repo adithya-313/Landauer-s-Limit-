@@ -17,7 +17,8 @@ TYPECHECK_MODULES := \
 	scripts/ci_smoke.py \
 	scripts/reproduce_report.py \
 	model_manifest.py \
-	scripts/verify_models.py
+	scripts/verify_models.py \
+	scripts/check_schema_parity.py
 
 # CI test files executed in headless, CPU-only environments
 CI_TEST_FILES := \
@@ -36,7 +37,8 @@ CI_TEST_FILES := \
 	tests/test_phase9_telemetry.py \
 	tests/test_generate_report.py \
 	tests/test_reproduce_report.py \
-	tests/test_model_manifest.py
+	tests/test_model_manifest.py \
+	tests/test_schema_parity.py
 
 # GPU and live-server test files executed locally on GPU-enabled infrastructure
 GPU_TEST_FILES := \
