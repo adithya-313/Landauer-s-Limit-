@@ -48,4 +48,7 @@ report.html
 ci-models/
 deploy/ci-gateway-config/tenants.yaml
 
+# Phase 11 run manifest artifacts
+runs/
+
 

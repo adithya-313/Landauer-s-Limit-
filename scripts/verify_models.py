@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 import sys
+from typing import Optional, Union
 
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 if _REPO_ROOT not in sys.path:
@@ -50,6 +51,49 @@ def resolve_files_root(
         return repo_root
 
     return repo_root
+
+
+def verify_single_model_files(
+    model_id: str,
+    manifest_path: Union[str, Path] = "models/manifest.yaml",
+    hf_cache: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> None:
+    """Verify cryptographic checksums for a single model by ID.
+
+    Purpose:
+        Validate all files associated with a model against its manifest entry.
+
+    Inputs:
+        model_id: Identifier of model in manifest.
+        manifest_path: Path to manifest.yaml.
+        hf_cache: Path to HF cache (defaults to HF_HUB_CACHE).
+        repo_root: Repository root path (defaults to Path(".")).
+
+    Errors:
+        KeyError: If model_id not in manifest.
+        ModelChecksumError: If model is unverified or file hashes mismatch.
+        FileNotFoundError: If model files root or files are missing.
+    """
+    manifest = load_manifest(manifest_path)
+    models = manifest.get("models", {})
+    if model_id not in models:
+        raise KeyError(f"Model '{model_id}' not found in {manifest_path}")
+
+    m_entry = models[model_id]
+    if not m_entry.get("verified", False):
+        note = m_entry.get("note", "unverified model")
+        raise ModelChecksumError(f"Model {model_id} cannot be verified: {note}")
+
+    actual_hf_cache = hf_cache or Path(HF_HUB_CACHE)
+    actual_repo_root = repo_root or Path(".")
+    files_root = resolve_files_root(model_id, m_entry, actual_hf_cache, actual_repo_root)
+    files = m_entry.get("files", {})
+    if not files_root.exists():
+        raise FileNotFoundError(f"Files root directory not found for {model_id}: {files_root}")
+
+    for rel_path, expected_hash in files.items():
+        verify_file(files_root / rel_path, expected_hash)
 
 
 def verify_models_cli() -> int:
