@@ -1,0 +1,46 @@
+schema_version: 1
+
+models:
+  sentence-transformers/all-MiniLM-L6-v2:
+    id: "sentence-transformers/all-MiniLM-L6-v2"
+    revision: "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    source: "sentence-transformers/all-MiniLM-L6-v2"
+    verified: true
+    files:
+      all-MiniLM-L6-v2.onnx: "be979478ca4289dec8e3140fdc92f8a618fec357f08f47b8faad2777db642308"
+
+  Qwen/Qwen2.5-1.5B-Instruct:
+    id: "Qwen/Qwen2.5-1.5B-Instruct"
+    revision: "989aa7980e4cf806f80c7fef2b1adb7bc71aa306"
+    source: "Qwen/Qwen2.5-1.5B-Instruct"
+    verified: true
+    files:
+      config.json: "98d2ff8cc47488d08a2b0b3acf4eb99ef210779b42bd48605f6b8e36acdbf670"
+      generation_config.json: "e558847a8b4402616f1273797b015104dc266fe4b520056fca88823ba8f8ebe6"
+      merges.txt: "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+      model.safetensors: "dd924a11b4c220f385b51ffa522daea7c9f3d850e31b162bb5661df483c6d3ee"
+      tokenizer.json: "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+      tokenizer_config.json: "5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583"
+      vocab.json: "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+
+  Qwen/Qwen2.5-1.5B-Instruct-AWQ:
+    id: "Qwen/Qwen2.5-1.5B-Instruct-AWQ"
+    revision: "3ecffa0ceb27851800f45519bab9c457a04405e1"
+    source: "Qwen/Qwen2.5-1.5B-Instruct-AWQ"
+    verified: false
+    files:
+      config.json: "61cefa4671101141de551f7b46faa45dc792cba654848ee5bb8e55bebe8b6f5d"
+      generation_config.json: "091fc0fd8cf33ecb3ded1399ffe17cca80fefdb167ac4c241c1ca42c6bc116e5"
+      merges.txt: "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+      model.safetensors: "5b29ed6f80e422c3ae7d40dc76fd8983501bbd7489cf84a72a5c5fe20bcf2813"
+      tokenizer.json: "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+      tokenizer_config.json: "5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583"
+      vocab.json: "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+
+  Qwen2.5-1.5B-Instruct-GGUF:
+    id: "Qwen2.5-1.5B-Instruct-GGUF"
+    revision: "91cad51170dc346986eccefdc2dd33a9da36ead9"
+    source: "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
+    verified: false
+    files:
+      qwen2.5-1.5b-instruct-q4_k_m.gguf: "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
