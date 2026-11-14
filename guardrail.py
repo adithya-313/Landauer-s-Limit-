@@ -27,6 +27,8 @@ import onnxruntime
 import faiss
 from transformers import AutoTokenizer
 
+from model_manifest import ModelChecksumError, verify_file
+
 
 # ---------------------------------------------------------------------------
 # CONSTANTS
@@ -36,6 +38,24 @@ ONNX_MODEL_PATH: str = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "all-MiniLM-L6-v2.onnx",
 )
+
+ONNX_SHA256_PATH: str = ONNX_MODEL_PATH + ".sha256"
+
+
+def verify_guardrail_onnx(
+    onnx_path: str = ONNX_MODEL_PATH,
+    sha256_path: str = ONNX_SHA256_PATH,
+) -> None:
+    """Verify cryptographic integrity of the ONNX model against its sidecar sha256 file."""
+    if not os.path.isfile(sha256_path):
+        raise ModelChecksumError(f"Missing ONNX checksum sidecar: {sha256_path}")
+    with open(sha256_path, "r", encoding="utf-8") as fh:
+        sidecar_hash = fh.read().strip()
+    verify_file(onnx_path, sidecar_hash)
+
+
+# Verify ONNX model integrity before creating inference session
+verify_guardrail_onnx(ONNX_MODEL_PATH, ONNX_SHA256_PATH)
 
 EMBEDDING_DIM: int = 384  # all-MiniLM-L6-v2 output dimension
 

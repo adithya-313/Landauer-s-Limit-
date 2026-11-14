@@ -39,13 +39,15 @@ jobs:
         with:
           path: |
             all-MiniLM-L6-v2.onnx
+            all-MiniLM-L6-v2.onnx.sha256
             ~/.cache/huggingface
           key: onnx-model-${{ hashFiles('micro_lab.py', 'requirements-ci.lock') }}
 
       - name: 7 export ONNX model if missing
         run: |
-          if [ ! -f all-MiniLM-L6-v2.onnx ]; then
+          if [ ! -f all-MiniLM-L6-v2.onnx ] || [ ! -f all-MiniLM-L6-v2.onnx.sha256 ]; then
             python -c "from transformers import AutoTokenizer; import micro_lab; m = 'sentence-transformers/all-MiniLM-L6-v2'; AutoTokenizer.from_pretrained(m); micro_lab.load_onnx_model(m, 'all-MiniLM-L6-v2.onnx')"
+            python -c "import hashlib; h=hashlib.sha256(open('all-MiniLM-L6-v2.onnx','rb').read()).hexdigest(); open('all-MiniLM-L6-v2.onnx.sha256','w').write(h + '\n')"
           fi
 
       - name: 8 make test-ci

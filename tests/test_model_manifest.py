@@ -181,3 +181,44 @@ def test_real_manifest_passes_schema_validation():
         assert models[mid]["source"]
         assert isinstance(models[mid]["verified"], bool)
         assert len(models[mid]["files"]) > 0
+
+
+def test_guardrail_verifies_onnx_checksum():
+    """Verify clean load passes."""
+    import guardrail
+
+    guardrail.verify_guardrail_onnx()
+
+
+def test_guardrail_refuses_corrupted_onnx(tmp_path):
+    """Flip 1 byte in a copy of onnx, verify ModelChecksumError raised."""
+    import guardrail
+
+    onnx_copy = tmp_path / "all-MiniLM-L6-v2.onnx"
+    sha_copy = tmp_path / "all-MiniLM-L6-v2.onnx.sha256"
+
+    with open("all-MiniLM-L6-v2.onnx", "rb") as f:
+        data = bytearray(f.read())
+    data[0] ^= 0xFF
+    onnx_copy.write_bytes(bytes(data))
+
+    with open("all-MiniLM-L6-v2.onnx.sha256", "r", encoding="utf-8") as f:
+        sha_copy.write_text(f.read(), encoding="utf-8")
+
+    with pytest.raises(ModelChecksumError, match="Checksum mismatch"):
+        guardrail.verify_guardrail_onnx(str(onnx_copy), str(sha_copy))
+
+
+def test_guardrail_refuses_missing_sidecar(tmp_path):
+    """Missing .sha256 raises ModelChecksumError."""
+    import guardrail
+
+    onnx_copy = tmp_path / "all-MiniLM-L6-v2.onnx"
+    missing_sha = tmp_path / "missing.sha256"
+
+    with open("all-MiniLM-L6-v2.onnx", "rb") as f:
+        onnx_copy.write_bytes(f.read())
+
+    with pytest.raises(ModelChecksumError, match="Missing ONNX checksum sidecar"):
+        guardrail.verify_guardrail_onnx(str(onnx_copy), str(missing_sha))
+

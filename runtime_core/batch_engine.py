@@ -8,6 +8,14 @@ import threading
 import queue
 import logging
 from typing import List, Dict, Optional, Any
+import sys
+from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+import model_manifest
 from .kv_cache_manager import KVCacheManager
 from .prefix_hashing import BLOCK_SIZE
 from prometheus_client import start_http_server, Gauge
@@ -66,11 +74,40 @@ class BatchEngine:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
         print("Loading model in 4-bit...")
+        manifest = model_manifest.load_manifest()
+        revision = None
+        if model_id in manifest.get("models", {}):
+            model_entry = manifest["models"][model_id]
+            revision = model_entry.get("revision")
+            if Path(model_id).exists():
+                files_root = Path(model_id)
+            else:
+                source = model_entry.get("source", model_id)
+                if "/" in source:
+                    org, repo = source.split("/", 1)
+                    files_root = (
+                        Path.home()
+                        / ".cache"
+                        / "huggingface"
+                        / "hub"
+                        / f"models--{org}--{repo}"
+                        / "snapshots"
+                        / str(revision)
+                    )
+                else:
+                    files_root = Path(".")
+            model_manifest.verify_model(model_id, files_root=files_root)
+
         quant_config = BitsAndBytesConfig(load_in_4bit=True)
+        from_pretrained_kwargs: Dict[str, Any] = {
+            "quantization_config": quant_config,
+            "device_map": "auto",
+        }
+        if revision is not None:
+            from_pretrained_kwargs["revision"] = revision
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            quantization_config=quant_config,
-            device_map="auto"
+            **from_pretrained_kwargs,
         )
         self.device = self.model.device
         

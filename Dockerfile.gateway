@@ -22,9 +22,12 @@ ENV HF_HOME=/hf
 RUN python -c "\
 from transformers import AutoTokenizer;\
 import micro_lab;\
+import hashlib;\
 model_name = 'sentence-transformers/all-MiniLM-L6-v2';\
 AutoTokenizer.from_pretrained(model_name);\
 micro_lab.load_onnx_model(model_name, '/export/all-MiniLM-L6-v2.onnx');\
+h = hashlib.sha256(open('/export/all-MiniLM-L6-v2.onnx', 'rb').read()).hexdigest();\
+open('/export/all-MiniLM-L6-v2.onnx.sha256', 'w').write(h + '\n');\
 "
 
 # ---------------------------------------------------------------------------
@@ -49,6 +52,7 @@ COPY gateway.py \
      engine_config.py \
      gpu_monitor.py \
      guardrail.py \
+     model_manifest.py \
      payload_guard.py \
      pg_writer.py \
      protective_actions.py \
@@ -62,6 +66,7 @@ COPY adapters /app/adapters
 
 # Copy exported ONNX model and cached HuggingFace tokenizer
 COPY --from=export /export/all-MiniLM-L6-v2.onnx /app/all-MiniLM-L6-v2.onnx
+COPY --from=export /export/all-MiniLM-L6-v2.onnx.sha256 /app/all-MiniLM-L6-v2.onnx.sha256
 COPY --from=export /hf /hf
 
 # Create necessary directories and configure permissions

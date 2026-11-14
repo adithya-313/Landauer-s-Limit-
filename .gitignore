@@ -5,6 +5,7 @@ __pycache__/
 
 # ONNX exported model (binary artifact, not source)
 *.onnx
+*.onnx.sha256
 
 # Validation helper (non-essential)
 validate.py
