@@ -15,7 +15,7 @@ import uuid
 import asyncpg
 
 import model_manifest
-from scripts.verify_models import verify_single_model_files
+from model_manifest import verify_single_model_files
 
 ENGINE_MODEL_IDS: Dict[str, str] = {
     "vllm_local": "Qwen/Qwen2.5-1.5B-Instruct-AWQ",

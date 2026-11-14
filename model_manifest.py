@@ -20,7 +20,7 @@ Schema Documentation (models/manifest.yaml):
 
 import hashlib
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Optional, Union
 import yaml
 
 
@@ -282,3 +282,88 @@ def verify_model(
     for rel_path, expected_hash in files.items():
         file_path = root / rel_path
         verify_file(file_path, expected_hash)
+
+
+def resolve_files_root(
+    model_id: str,
+    model_entry: dict,
+    hf_cache: Path,
+    repo_root: Path,
+) -> Path:
+    """Resolve local path to model artifacts based on model metadata."""
+    source = model_entry.get("source", "")
+    revision = model_entry.get("revision", "")
+
+    if source == "ollama":
+        return Path.home() / ".ollama" / "models" / "blobs"
+
+    repo = model_entry.get("repo", model_id)
+    if source == "local_export":
+        if "/" in repo:
+            org, name = repo.split("/", 1)
+            return hf_cache / f"models--{org}--{name}" / "snapshots" / revision
+        return repo_root
+
+    if source == "huggingface":
+        if "/" in repo:
+            org, name = repo.split("/", 1)
+            hf_snap = hf_cache / f"models--{org}--{name}" / "snapshots" / revision
+            if hf_snap.exists():
+                return hf_snap
+            ci_path = repo_root / "ci-models"
+            if ci_path.exists():
+                return ci_path
+            return hf_snap
+        return repo_root
+
+    return repo_root
+
+
+def verify_single_model_files(
+    model_id: str,
+    manifest_path: Union[str, Path] = "models/manifest.yaml",
+    hf_cache: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> None:
+    """Verify cryptographic checksums for a single model by ID.
+
+    Purpose:
+        Validate all files associated with a model against its manifest entry.
+
+    Inputs:
+        model_id: Identifier of model in manifest.
+        manifest_path: Path to manifest.yaml.
+        hf_cache: Path to HF cache (defaults to HF_HUB_CACHE).
+        repo_root: Repository root path (defaults to Path(".")).
+
+    Errors:
+        KeyError: If model_id not in manifest.
+        ModelChecksumError: If model is unverified or file hashes mismatch.
+        FileNotFoundError: If model files root or files are missing.
+    """
+    from huggingface_hub.constants import HF_HUB_CACHE
+
+    manifest = load_manifest(manifest_path)
+    models = manifest.get("models", {})
+    if model_id not in models:
+        raise KeyError(f"Model '{model_id}' not found in {manifest_path}")
+
+    m_entry = models[model_id]
+    if not m_entry.get("verified", False):
+        note = m_entry.get("note", "unverified model")
+        raise ModelChecksumError(f"Model {model_id} cannot be verified: {note}")
+
+    actual_hf_cache = hf_cache if hf_cache is not None else Path(HF_HUB_CACHE)
+    actual_repo_root = repo_root if repo_root is not None else Path(".")
+    files_root = resolve_files_root(
+        model_id, m_entry, actual_hf_cache, actual_repo_root
+    )
+    files = m_entry.get("files", {})
+    if not files_root.exists():
+        raise FileNotFoundError(
+            f"Files root directory not found for {model_id}: {files_root}"
+        )
+
+    for rel_path, expected_hash in files.items():
+        verify_file(files_root / rel_path, expected_hash)
+
