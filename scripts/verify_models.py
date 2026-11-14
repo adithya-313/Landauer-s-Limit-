@@ -4,7 +4,11 @@ import argparse
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from huggingface_hub.constants import HF_HUB_CACHE
 
 from model_manifest import (
     ModelChecksumError,
@@ -13,17 +17,37 @@ from model_manifest import (
 )
 
 
-def resolve_files_root(model_id: str, model_entry: dict, hf_cache: Path, repo_root: Path) -> Path:
-    """Resolve local path to model artifacts."""
-    files = model_entry.get("files", {})
-    if "all-MiniLM-L6-v2.onnx" in files:
-        return repo_root
-
+def resolve_files_root(
+    model_id: str,
+    model_entry: dict,
+    hf_cache: Path,
+    repo_root: Path,
+) -> Path:
+    """Resolve local path to model artifacts based on model metadata."""
     source = model_entry.get("source", "")
     revision = model_entry.get("revision", "")
-    if "/" in source:
-        org, repo = source.split("/", 1)
-        return hf_cache / f"models--{org}--{repo}" / "snapshots" / revision
+
+    if source == "ollama":
+        return Path.home() / ".ollama" / "models" / "blobs"
+
+    repo = model_entry.get("repo", model_id)
+    if source == "local_export":
+        if "/" in repo:
+            org, name = repo.split("/", 1)
+            return hf_cache / f"models--{org}--{name}" / "snapshots" / revision
+        return repo_root
+
+    if source == "huggingface":
+        if "/" in repo:
+            org, name = repo.split("/", 1)
+            hf_snap = hf_cache / f"models--{org}--{name}" / "snapshots" / revision
+            if hf_snap.exists():
+                return hf_snap
+            ci_path = repo_root / "ci-models"
+            if ci_path.exists():
+                return ci_path
+            return hf_snap
+        return repo_root
 
     return repo_root
 
@@ -34,12 +58,12 @@ def verify_models_cli() -> int:
     parser.add_argument(
         "--model",
         default=None,
-        help="Specific model identifier to verify (default: all verified: true models)",
+        help="Specific model identifier to verify",
     )
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Check all models in manifest; warn on models marked verified: false",
+        help="Check all models in manifest; reports failure for unverified models",
     )
     parser.add_argument(
         "--manifest",
@@ -48,7 +72,7 @@ def verify_models_cli() -> int:
     )
     parser.add_argument(
         "--hf-cache",
-        default=str(Path.home() / ".cache" / "huggingface" / "hub"),
+        default=str(HF_HUB_CACHE),
         help="Path to local Hugging Face hub cache directory",
     )
     args = parser.parse_args()
@@ -73,33 +97,44 @@ def verify_models_cli() -> int:
     elif args.all:
         targets = list(models.keys())
     else:
-        targets = [m_id for m_id, m in models.items() if m.get("verified") is True]
+        targets = list(models.keys())
 
     has_failure = False
 
     for model_id in targets:
         m_entry = models[model_id]
         if not m_entry.get("verified", False):
-            print(f"[WARN] {model_id}: marked verified=false in manifest; skipping file verification")
+            note = m_entry.get("note", "unverified model")
+            print(f"[FAIL] {model_id}: cannot be verified on this machine: {note}")
+            has_failure = True
             continue
 
         files_root = resolve_files_root(model_id, m_entry, hf_cache, repo_root)
+        files = m_entry.get("files", {})
         if not files_root.exists():
             print(f"[FAIL] {model_id}: files root directory not found: {files_root}")
             has_failure = True
             continue
 
-        for rel_path, expected_hash in m_entry.get("files", {}).items():
+        model_failed = False
+        for rel_path, expected_hash in files.items():
             file_path = files_root / rel_path
             try:
                 verify_file(file_path, expected_hash)
-                print(f"[PASS] {model_id}/{rel_path} ({expected_hash[:12]}...)")
             except FileNotFoundError:
-                print(f"[FAIL] {model_id}/{rel_path}: file not found at {file_path}")
+                print(f"[FAIL] {model_id}: file not found at {file_path}")
+                model_failed = True
                 has_failure = True
+                break
             except ModelChecksumError as err:
-                print(f"[FAIL] {model_id}/{rel_path}: {err}")
+                print(f"[FAIL] {model_id}: {err}")
+                model_failed = True
                 has_failure = True
+                break
+
+        if not model_failed:
+            rev_str = str(m_entry.get("revision", ""))[:12]
+            print(f"[PASS] {model_id}: all {len(files)} files verified ({rev_str})")
 
     return 1 if has_failure else 0
 

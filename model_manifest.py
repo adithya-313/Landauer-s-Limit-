@@ -9,9 +9,12 @@ Schema Documentation (models/manifest.yaml):
 - schema_version: integer (must be 1)
 - models: dictionary mapping model identifiers to metadata records
     - id: string, unique model identifier
-    - revision: string, git commit hash or immutable tag
-    - source: string, Hugging Face repository or origin URL
+    - source: string, source origin ('huggingface', 'ollama', or 'local_export')
+    - repo: string, repository identifier or registry namespace
+    - revision: string, git commit hash, immutable tag, or manifest sha256
+    - quantization: string, precision or quantization format (e.g. 'fp16', 'bnb-4bit-on-load')
     - verified: boolean, whether files have been cryptographically verified on disk
+    - note: string, explanation of provenance, verification status, or operational scope
     - files: dictionary mapping relative file paths to 64-character lowercase sha256 hex strings
 """
 
@@ -82,8 +85,10 @@ def load_manifest(path: Union[str, Path] = "models/manifest.yaml") -> dict[str, 
     Key Logic:
         Loads the YAML document using safe_load, asserts root object is a mapping, verifies
         schema_version equals 1, and iterates through every model in 'models' enforcing
-        non-empty string types for id, revision, and source, boolean type for verified,
-        and verifying that every entry in files is a valid 64-character lowercase hex digest.
+        required keys ('id', 'source', 'repo', 'revision', 'quantization', 'verified', 'note',
+        'files'), valid source origins ('huggingface', 'ollama', 'local_export'), boolean
+        verified status, non-empty files dictionary for verified models, and 64-character
+        hex digests for all referenced files.
 
     Errors:
         FileNotFoundError: If the specified manifest file does not exist on disk.
@@ -113,29 +118,64 @@ def load_manifest(path: Union[str, Path] = "models/manifest.yaml") -> dict[str, 
     if not isinstance(models, dict):
         raise ValueError("'models' field must be a dictionary")
 
+    valid_sources = {"huggingface", "ollama", "local_export"}
+    required_keys = {
+        "id",
+        "source",
+        "repo",
+        "revision",
+        "quantization",
+        "verified",
+        "note",
+        "files",
+    }
+
     for model_key, model_entry in models.items():
         if not isinstance(model_entry, dict):
             raise ValueError(f"Model entry '{model_key}' must be a dictionary")
+
+        missing_keys = required_keys - set(model_entry.keys())
+        if missing_keys:
+            raise ValueError(
+                f"Model '{model_key}' is missing required keys: {sorted(missing_keys)}"
+            )
 
         m_id = model_entry.get("id")
         if not isinstance(m_id, str) or not m_id.strip():
             raise ValueError(f"Model '{model_key}' must have a non-empty string 'id'")
 
+        m_src = model_entry.get("source")
+        if not isinstance(m_src, str) or m_src not in valid_sources:
+            raise ValueError(
+                f"Model '{model_key}' source '{m_src}' must be one of {sorted(valid_sources)}"
+            )
+
+        m_repo = model_entry.get("repo")
+        if not isinstance(m_repo, str) or not m_repo.strip():
+            raise ValueError(f"Model '{model_key}' must have a non-empty string 'repo'")
+
         m_rev = model_entry.get("revision")
         if not isinstance(m_rev, str) or not m_rev.strip():
             raise ValueError(f"Model '{model_key}' must have a non-empty string 'revision'")
 
-        m_src = model_entry.get("source")
-        if not isinstance(m_src, str) or not m_src.strip():
-            raise ValueError(f"Model '{model_key}' must have a non-empty string 'source'")
+        m_quant = model_entry.get("quantization")
+        if not isinstance(m_quant, str) or not m_quant.strip():
+            raise ValueError(f"Model '{model_key}' must have a non-empty string 'quantization'")
 
         m_ver = model_entry.get("verified")
         if not isinstance(m_ver, bool):
             raise ValueError(f"Model '{model_key}' must have a boolean 'verified'")
 
+        m_note = model_entry.get("note")
+        if not isinstance(m_note, str) or not m_note.strip():
+            raise ValueError(f"Model '{model_key}' must have a non-empty string 'note'")
+
         m_files = model_entry.get("files")
-        if not isinstance(m_files, dict) or not m_files:
-            raise ValueError(f"Model '{model_key}' must have a non-empty 'files' dictionary")
+        if not isinstance(m_files, dict):
+            raise ValueError(f"Model '{model_key}' must have a 'files' dictionary")
+
+        if m_ver is True and not m_files:
+            raise ValueError(f"Model '{model_key}' is marked verified: true but has empty 'files'")
 
         for f_path, f_hash in m_files.items():
             if not isinstance(f_path, str) or not f_path.strip():
