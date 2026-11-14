@@ -35,7 +35,10 @@ def verify_checksums(input_dir: Path, sums_file: Path) -> tuple[bool, str]:
 
         hasher = hashlib.sha256()
         with open(target_path, "rb") as fh:
-            while chunk := fh.read(1024 * 1024):
+            while True:
+                chunk = fh.read(1024 * 1024)
+                if not chunk:
+                    break
                 hasher.update(chunk)
         actual_hash = hasher.hexdigest()
         if actual_hash.lower() != expected_hash.lower():

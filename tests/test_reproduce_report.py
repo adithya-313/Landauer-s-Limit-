@@ -80,3 +80,37 @@ def test_generate_report_output_dir_does_not_modify_root(tmp_path):
         current_bytes = f.read()
     assert current_bytes == original_bytes
     assert root_report.stat().st_mtime == orig_mtime
+
+
+def test_reproduce_report_fails_on_corrupted_expected_report(tmp_path):
+    """Test 4: reproduce() and CLI fail if expected report differs by even one byte."""
+    corrupted_report = tmp_path / "report.md"
+    with open("report.md", "rb") as f:
+        data = bytearray(f.read())
+    assert len(data) > 0
+    # Change ONE byte
+    data[0] ^= 0xFF
+    with open(corrupted_report, "wb") as f:
+        f.write(data)
+
+    input_dir = Path("archive/phase8")
+    # Assert module function returns 1
+    ret = reproduce(input_dir, corrupted_report)
+    assert ret == 1
+
+    # Assert CLI with --expected-report exits non-zero
+    res = subprocess.run(
+        [
+            sys.executable,
+            "scripts/reproduce_report.py",
+            "--input-dir",
+            str(input_dir),
+            "--expected-report",
+            str(corrupted_report),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode != 0
+    assert "REPRODUCE_REPORT: FAIL (report content mismatch)" in res.stderr
+

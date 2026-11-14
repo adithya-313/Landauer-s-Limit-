@@ -26,20 +26,74 @@ class ModelChecksumError(Exception):
 
 
 def sha256_of_file(path: Union[str, Path], chunk_size: int = 1024 * 1024) -> str:
-    """Compute lowercase SHA-256 hex digest of a file in 1 MiB chunks to avoid memory bloat."""
+    """Compute lowercase SHA-256 hex digest of a file using chunked streaming.
+
+    Purpose:
+        Compute cryptographic SHA-256 hash of a file while bounding memory usage,
+        allowing safe computation across large multi-gigabyte safetensors artifacts.
+
+    Inputs:
+        path (str | Path): Path to the target file to be hashed.
+        chunk_size (int, optional): Buffer size in bytes for reading (defaults to 1 MiB).
+
+    Outputs:
+        str: 64-character lowercase hexadecimal SHA-256 string.
+
+    Key Logic:
+        Opens the target file in binary read mode, reads data in fixed-size buffers
+        in an explicit loop until EOF, updates the hashlib.sha256 state on each chunk,
+        and returns the lowercase hexadecimal representation.
+
+    Errors:
+        FileNotFoundError: If the target path does not exist or is not a regular file.
+        OSError: If a filesystem read or access error occurs during stream consumption.
+
+    Complexity:
+        Time: O(N) where N is file size in bytes (single sequential read pass).
+        Space: O(1) auxiliary memory (bounded by chunk_size buffer).
+    """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"File not found: {p}")
 
     hasher = hashlib.sha256()
     with open(p, "rb") as fh:
-        while chunk := fh.read(chunk_size):
+        while True:
+            chunk = fh.read(chunk_size)
+            if not chunk:
+                break
             hasher.update(chunk)
     return hasher.hexdigest().lower()
 
 
 def load_manifest(path: Union[str, Path] = "models/manifest.yaml") -> dict[str, Any]:
-    """Load and strictly validate the model manifest schema."""
+    """Load, parse, and strictly validate the schema of the model manifest YAML.
+
+    Purpose:
+        Provide a single validated source of truth for all machine learning models,
+        revisions, sources, verification statuses, and artifact cryptographic digests.
+
+    Inputs:
+        path (str | Path, optional): Path to manifest YAML (defaults to 'models/manifest.yaml').
+
+    Outputs:
+        dict[str, Any]: Validated manifest data dictionary conforming to schema version 1.
+
+    Key Logic:
+        Loads the YAML document using safe_load, asserts root object is a mapping, verifies
+        schema_version equals 1, and iterates through every model in 'models' enforcing
+        non-empty string types for id, revision, and source, boolean type for verified,
+        and verifying that every entry in files is a valid 64-character lowercase hex digest.
+
+    Errors:
+        FileNotFoundError: If the specified manifest file does not exist on disk.
+        ValueError: If YAML root is not a dictionary, schema_version != 1, required fields
+            are missing, fields have incorrect types, or file hashes are malformed.
+
+    Complexity:
+        Time: O(M * F) where M is model count and F is average file count per model.
+        Space: O(M * F) for in-memory YAML representation.
+    """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"Model manifest not found: {p}")
@@ -101,7 +155,32 @@ def load_manifest(path: Union[str, Path] = "models/manifest.yaml") -> dict[str, 
 
 
 def verify_file(path: Union[str, Path], expected_sha256: str) -> None:
-    """Verify that a single file matches the expected SHA-256 digest."""
+    """Cryptographically verify that a file matches an expected SHA-256 digest.
+
+    Purpose:
+        Prevent loading corrupted, tampered, or mismatched files by calculating
+        actual SHA-256 and validating exact equality against an expected digest.
+
+    Inputs:
+        path (str | Path): Path to the target file to be verified.
+        expected_sha256 (str): Expected 64-character SHA-256 hex string.
+
+    Outputs:
+        None (returns silently when verification succeeds).
+
+    Key Logic:
+        Verifies existence of target file, computes actual lowercase digest using
+        sha256_of_file, and compares against expected_sha256 (case-insensitive).
+        If hashes do not match, raises ModelChecksumError with informative details.
+
+    Errors:
+        FileNotFoundError: If the target file does not exist on disk.
+        ModelChecksumError: If computed digest differs from expected_sha256.
+
+    Complexity:
+        Time: O(N) where N is file size in bytes.
+        Space: O(1) auxiliary memory.
+    """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"File to verify does not exist: {p}")
@@ -118,7 +197,35 @@ def verify_model(
     files_root: Union[str, Path],
     manifest_path: Union[str, Path] = "models/manifest.yaml",
 ) -> None:
-    """Verify all files belonging to a model entry against the manifest."""
+    """Verify all cryptographic artifacts associated with a model ID against the manifest.
+
+    Purpose:
+        Ensure that an entire model directory snapshot (weights, configs, tokenizers)
+        matches the exact cryptographic state pinned in the manifest before execution.
+
+    Inputs:
+        model_id (str): Key identifying the model in the manifest.
+        files_root (str | Path): Root directory path containing the model files on disk.
+        manifest_path (str | Path, optional): Path to manifest file (defaults to 'models/manifest.yaml').
+
+    Outputs:
+        None (returns silently when all files verify successfully).
+
+    Key Logic:
+        Loads manifest, retrieves entry for model_id, verifies that verified is True,
+        iterates through every relative file path specified in model_entry['files'],
+        resolves full path against files_root, and calls verify_file for each artifact.
+
+    Errors:
+        KeyError: If model_id is not registered in the manifest.
+        ModelChecksumError: If the model is marked unverified in the manifest, or if any
+            individual artifact hash verification fails.
+        FileNotFoundError: If manifest file or any referenced model file is missing.
+
+    Complexity:
+        Time: O(sum(file_sizes)) across all files comprising the model snapshot.
+        Space: O(1) auxiliary memory beyond loaded manifest dictionary.
+    """
     manifest = load_manifest(manifest_path)
     models = manifest.get("models", {})
     if model_id not in models:

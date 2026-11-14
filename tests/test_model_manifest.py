@@ -97,6 +97,40 @@ def test_verify_file_detects_corruption(tmp_path):
         verify_file(missing, expected_hash)
 
 
+def test_missing_file_raises_filenotfounderror(tmp_path):
+    """Missing file raises FileNotFoundError for both sha256_of_file and verify_file."""
+    missing = tmp_path / "does_not_exist.bin"
+    with pytest.raises(FileNotFoundError):
+        sha256_of_file(missing)
+
+    with pytest.raises(FileNotFoundError):
+        verify_file(missing, "0" * 64)
+
+
+def test_sha256_of_file_reads_multiple_chunks_past_1mib(tmp_path):
+    """Test 3 MiB files where only the last byte differs to prove multi-chunk iteration."""
+    size = 3 * 1024 * 1024
+    f1_bytes = bytearray(b"A" * size)
+    f2_bytes = bytearray(b"A" * size)
+    # Only the very last byte differs (byte index 3,145,727)
+    f1_bytes[-1] = ord(b"X")
+    f2_bytes[-1] = ord(b"Y")
+
+    f1 = tmp_path / "file1_3mib.bin"
+    f2 = tmp_path / "file2_3mib.bin"
+    f1.write_bytes(bytes(f1_bytes))
+    f2.write_bytes(bytes(f2_bytes))
+
+    h1 = sha256_of_file(f1)
+    h2 = sha256_of_file(f2)
+
+    # Hashes must differ because the last byte differs
+    assert h1 != h2
+    # Hashes must match standard hashlib sha256 of the entire files
+    assert h1 == hashlib.sha256(f1_bytes).hexdigest().lower()
+    assert h2 == hashlib.sha256(f2_bytes).hexdigest().lower()
+
+
 def test_verify_file_accepts_valid_file(tmp_path):
     """Test 3: verify_file accepts valid file."""
     p = tmp_path / "valid.bin"
@@ -210,7 +244,7 @@ def test_guardrail_refuses_corrupted_onnx(tmp_path):
 
 
 def test_guardrail_refuses_missing_sidecar(tmp_path):
-    """Missing .sha256 raises ModelChecksumError."""
+    """Missing .sha256 raises FileNotFoundError naming sidecar path and creation command."""
     import guardrail
 
     onnx_copy = tmp_path / "all-MiniLM-L6-v2.onnx"
@@ -219,6 +253,11 @@ def test_guardrail_refuses_missing_sidecar(tmp_path):
     with open("all-MiniLM-L6-v2.onnx", "rb") as f:
         onnx_copy.write_bytes(f.read())
 
-    with pytest.raises(ModelChecksumError, match="Missing ONNX checksum sidecar"):
+    with pytest.raises(FileNotFoundError) as exc_info:
         guardrail.verify_guardrail_onnx(str(onnx_copy), str(missing_sha))
+
+    err_msg = str(exc_info.value)
+    assert str(missing_sha) in err_msg
+    assert "python -c" in err_msg
+    assert "all-MiniLM-L6-v2.onnx.sha256" in err_msg
 
