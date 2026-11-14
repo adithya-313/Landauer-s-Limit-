@@ -14,7 +14,8 @@ TYPECHECK_MODULES := \
 	admin_routes.py \
 	gpu_monitor.py \
 	payload_guard.py \
-	scripts/ci_smoke.py
+	scripts/ci_smoke.py \
+	scripts/reproduce_report.py
 
 # CI test files executed in headless, CPU-only environments
 CI_TEST_FILES := \
@@ -31,7 +32,8 @@ CI_TEST_FILES := \
 	tests/test_phase9_monitoring.py \
 	tests/test_phase9_pg.py \
 	tests/test_phase9_telemetry.py \
-	tests/test_generate_report.py
+	tests/test_generate_report.py \
+	tests/test_reproduce_report.py
 
 # GPU and live-server test files executed locally on GPU-enabled infrastructure
 GPU_TEST_FILES := \
@@ -49,9 +51,12 @@ LINT_FILES := \
 	tests/test_phase6d_2_blocks.py \
 	tests/test_phase6d_3_registry.py
 
-.PHONY: all lint typecheck test-ci test-gpu print-ci-files
+.PHONY: all lint typecheck test-ci test-gpu print-ci-files reproduce-report
 
 all: lint typecheck test-ci
+
+reproduce-report:
+	$(PYTHON) scripts/reproduce_report.py
 
 # Static syntax and error analysis
 lint:
