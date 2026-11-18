@@ -65,6 +65,37 @@ def normalize_schema_dump(text: str) -> str:
     return "\n".join(clean_lines) + ("\n" if clean_lines else "")
 
 
+REQUIRED_TABLES: Tuple[str, ...] = (
+    "CREATE TABLE public.telemetry_events",
+    "CREATE TABLE public.tenants",
+    "CREATE TABLE public.run_manifests",
+    "CREATE TABLE public.alembic_version",
+)
+
+
+def require_tables(dump: str, db_name: str) -> None:
+    """Verify that a schema dump contains all required table definitions.
+
+    Purpose:
+        Ensure that schema dumps are not empty, truncated, or missing expected tables
+        before computing parity diffs.
+
+    Inputs:
+        dump (str): Normalized or raw schema dump text.
+        db_name (str): Database name being validated (for error reporting).
+
+    Errors:
+        SystemExit: If any required table creation statement is missing from dump.
+    """
+    for table_stmt in REQUIRED_TABLES:
+        if table_stmt not in dump:
+            table_name = table_stmt.split()[-1]
+            sys.stderr.write(
+                f"SCHEMA_PARITY: FAIL (missing table {table_name} in {db_name})\n"
+            )
+            sys.exit(1)
+
+
 def compare_schema_dumps(dump_init: str, dump_fresh: str) -> Tuple[bool, str, str]:
     """Compare normalized schema dumps and compute digest or unified diff.
 
@@ -169,7 +200,10 @@ def main() -> int:
     load_env_file()
     compose_prefix = build_compose_prefix(args.file)
 
-    pg_password = os.environ.get("POSTGRES_PASSWORD", "landauer")
+    pg_password = os.environ.get("POSTGRES_PASSWORD", "").strip()
+    if not pg_password:
+        sys.stderr.write("Error: POSTGRES_PASSWORD environment variable is missing or empty.\n")
+        return 1
     pg_port = os.environ.get("POSTGRES_HOST_PORT", "5432")
     pg_user = os.environ.get("POSTGRES_USER", "landauer")
 
@@ -249,6 +283,9 @@ def main() -> int:
         # Dump and compare schemas
         dump_init = dump_schema(compose_prefix, "parity_init")
         dump_fresh = dump_schema(compose_prefix, "parity_fresh")
+
+        require_tables(dump_init, "parity_init")
+        require_tables(dump_fresh, "parity_fresh")
 
         is_match, digest, diff = compare_schema_dumps(dump_init, dump_fresh)
         if is_match:
