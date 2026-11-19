@@ -28,12 +28,10 @@ Execution layers (in order):
 import asyncio
 import json
 import logging
-import time
 import os
-from typing import AsyncIterator, List, Optional
 import time
+from typing import Any, AsyncIterator, List, Literal, Optional
 import uuid
-from typing import List, Optional, Literal, AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -44,7 +42,6 @@ import guardrail as _guardrail_module
 from guardrail import guardrail as _guardrail_instance
 
 # The Semantic Cache (Phase 4) — FAISS IndexIDMap + LRU eviction cache.
-import semantic_cache as _cache_module
 from semantic_cache import semantic_cache as _cache_instance
 
 # The Multi-Engine Router (Phase 5) — dispatches to vLLM, llama.cpp, Colab, etc.
@@ -64,9 +61,11 @@ from pg_writer import PgEventWriter
 from tenants import (
     default_tenants_path,
     get_tenant_context,
+    load_admins,
     load_tenants,
     load_tenants_from_pg,
     make_api_key_middleware,
+    validate_no_key_overlap,
 )
 
 # Phase 9: Telemetry & Prometheus metrics
@@ -98,6 +97,10 @@ _pg_writer = PgEventWriter(dsn=_pg_dsn if _pg_dsn else None)
 # Phase 9: Authenticated tenant store
 _tenants_path = default_tenants_path()
 _tenant_store = load_tenants(_tenants_path)
+
+# Phase 12: Authenticated admin store (always loaded from YAML)
+_admin_store = load_admins(_tenants_path)
+validate_no_key_overlap(_tenant_store, _admin_store)
 
 # Phase 9: Opt-in Postgres tenant source configuration
 _tenant_source = os.environ.get("LANDAUER_TENANT_SOURCE", "yaml").strip().lower()
@@ -225,7 +228,7 @@ app.middleware("http")(check_payload_size)
 # Register API-key authentication middleware.
 # In Starlette, middleware registered LATER runs FIRST, ensuring authentication
 # is the outermost layer and executes before payload size checks.
-app.middleware("http")(make_api_key_middleware(_tenant_store))
+app.middleware("http")(make_api_key_middleware(_tenant_store, _admin_store))
 
 # Phase 9: Wire admin routes with EngineAdmin instance
 _engine_admin = EngineAdmin(
@@ -282,6 +285,9 @@ async def on_startup():
             )
         target = _pg_writer._pool if _pg_writer._pool is not None else _pg_dsn
         pg_tenants = await load_tenants_from_pg(target)
+        # Note: Admins are ALWAYS loaded from YAML (PostgreSQL does not store admin credentials).
+        # We validate that loaded Postgres tenant keys do not collide with YAML admin keys.
+        validate_no_key_overlap(pg_tenants, _admin_store)
         _tenant_store.replace_tenants(pg_tenants)
         logger.info("Loaded %d tenants from Postgres", len(pg_tenants))
 
@@ -544,14 +550,14 @@ async def create_chat_completion(
 
     # Build a per-request asyncio.Queue to receive tokens from the background worker.
     # This bridges the gap between the single background worker and this specific HTTP client.
-    response_queue = asyncio.Queue()
+    response_queue: asyncio.Queue[Any] = asyncio.Queue()
     
     try:
-        req_id = await _request_queue.enqueue(
-            engine=request_body.engine,
+        await _request_queue.enqueue(
+            engine=requested_engine,
             prompt=last_user_message,
             tier=effective_tier,
-            max_tokens=request_body.max_tokens,
+            max_tokens=request_body.max_tokens if request_body.max_tokens is not None else 100,
             response_queue=response_queue,
             messages=messages_dicts
         )

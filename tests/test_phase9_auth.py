@@ -4,13 +4,20 @@ import asyncio
 import hashlib
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import Request
 import pytest
 import yaml
 
-from tenants import Tenant, TenantStore, default_tenants_path, load_tenants
+from tenants import (
+    Admin,
+    AdminStore,
+    Tenant,
+    TenantStore,
+    default_tenants_path,
+    load_tenants,
+)
 
 
 def test_tenants_valid_load(tmp_path: Path) -> None:
@@ -171,7 +178,9 @@ def test_committed_tenants_yaml_contains_no_plaintext_keys() -> None:
                 pytest.fail(f"Found scalar value longer than 64 characters in tenants.yaml: {val}")
 
 
-def _create_test_auth_client(store: TenantStore) -> Any:
+def _create_test_auth_client(
+    store: TenantStore, admin_store: Optional[AdminStore] = None
+) -> Any:
     """Creates a minimal FastAPI app with both middlewares wired in identical order to gateway."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -185,7 +194,7 @@ def _create_test_auth_client(store: TenantStore) -> Any:
     # 2. make_api_key_middleware
     # Starlette executes the later-registered middleware FIRST (outermost layer).
     app.middleware("http")(check_payload_size)
-    app.middleware("http")(make_api_key_middleware(store))
+    app.middleware("http")(make_api_key_middleware(store, admin_store))
 
     @app.get("/health")
     def health_stub() -> dict[str, str]:
@@ -303,8 +312,9 @@ def test_auth_middleware_admin_route_requires_key() -> None:
     """Verifies that admin routes require a valid key and return 401 without it."""
     secret = "admin_key_abc"
     sha = hashlib.sha256(secret.encode("utf-8")).hexdigest()
-    store = TenantStore([Tenant(tenant_id="admin_user", tier="premium", key_sha256=sha)])
-    client = _create_test_auth_client(store)
+    admin_store = AdminStore([Admin(admin_id="admin_user", key_sha256=sha)])
+    store = TenantStore([])
+    client = _create_test_auth_client(store, admin_store=admin_store)
 
     resp_unauth = client.get("/admin/engines")
     assert resp_unauth.status_code == 401

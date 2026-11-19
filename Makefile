@@ -43,7 +43,8 @@ CI_TEST_FILES := \
 	tests/test_model_manifest.py \
 	tests/test_schema_parity.py \
 	tests/test_run_manifest.py \
-	tests/test_reproducibility_docs.py
+	tests/test_reproducibility_docs.py \
+	tests/test_phase12_auth.py
 
 # GPU and live-server test files executed locally on GPU-enabled infrastructure
 GPU_TEST_FILES := \
