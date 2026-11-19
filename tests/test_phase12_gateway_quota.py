@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import time
 from typing import Any, Optional
 import pytest
@@ -198,7 +197,7 @@ def test_gateway_output_tokens_matches_telemetry_event(
     """Verify UsageMeter output_tokens matches token_count in gateway_events.jsonl."""
     raw_key, tenant = test_tenants["iso1"]
 
-    events_path = Path(os.environ["LANDAUER_EVENTS_PATH"])
+    events_path = gateway._events_writer.path
 
     payload = {
         "model": "test-model",
@@ -209,6 +208,9 @@ def test_gateway_output_tokens_matches_telemetry_event(
 
     response = client.post("/v1/chat/completions", json=payload, headers=headers)
     assert response.status_code == 200
+
+    # Tick the event loop to ensure background telemetry task flushes
+    client.get("/health")
 
     # Check in-memory meter
     meter_totals = gateway._meter.get_totals(tenant.tenant_id)
