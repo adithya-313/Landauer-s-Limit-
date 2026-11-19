@@ -26,7 +26,8 @@ TYPECHECK_MODULES := \
 	pricing.py \
 	scripts/derive_engine_power.py \
 	start_gateway.py \
-	quota.py
+	quota.py \
+	metering.py
 
 # CI test files executed in headless, CPU-only environments
 CI_TEST_FILES := \
@@ -52,7 +53,8 @@ CI_TEST_FILES := \
 	tests/test_phase12_auth.py \
 	tests/test_phase12_cache_isolation.py \
 	tests/test_phase12_pricing.py \
-	tests/test_phase12_quota.py
+	tests/test_phase12_quota.py \
+	tests/test_phase12_metering.py
 
 # GPU and live-server test files executed locally on GPU-enabled infrastructure
 GPU_TEST_FILES := \

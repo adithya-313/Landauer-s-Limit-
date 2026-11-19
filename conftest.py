@@ -39,6 +39,7 @@ _TENANTS_FILE.write_text(
 )
 
 _EVENTS_FILE = _TEMP_PATH / "gateway_events.jsonl"
+_QUOTA_EVENTS_FILE = _TEMP_PATH / "quota_events.jsonl"
 
 # Always set environment variables to point to the isolated test directory
 # so tests never depend on the user's private key or overwrite production logs.
@@ -46,6 +47,7 @@ os.environ["LANDAUER_API_KEY"] = _RAW_KEY
 os.environ["LANDAUER_ADMIN_API_KEY"] = _RAW_ADMIN_KEY
 os.environ["LANDAUER_TENANTS_PATH"] = str(_TENANTS_FILE)
 os.environ["LANDAUER_EVENTS_PATH"] = str(_EVENTS_FILE)
+os.environ["LANDAUER_QUOTA_EVENTS_PATH"] = str(_QUOTA_EVENTS_FILE)
 
 # Ensure LANDAUER_PG_DSN is unset so tests do not connect to a real Postgres database
 os.environ.pop("LANDAUER_PG_DSN", None)
