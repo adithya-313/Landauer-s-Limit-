@@ -6,7 +6,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any
+import time
+from typing import Any, Optional
 import pytest
 from fastapi.testclient import TestClient
 
@@ -213,13 +214,24 @@ def test_gateway_output_tokens_matches_telemetry_event(
     meter_totals = gateway._meter.get_totals(tenant.tenant_id)
     assert meter_totals["output_tokens"] == 3  # Mock delivers 3 tokens
 
-    # Read last telemetry event from JSONL file
-    assert events_path.is_file()
-    lines = [line.strip() for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    last_event = json.loads(lines[-1])
-    assert last_event["tenant_id"] == tenant.tenant_id
-    assert last_event["token_count"] == 3
-    assert last_event["token_count"] == meter_totals["output_tokens"]
+    # Read telemetry event from JSONL file (polling to allow background thread to flush)
+    matching_event: Optional[dict[str, Any]] = None
+    for _ in range(50):
+        if events_path.is_file():
+            lines = [line.strip() for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            for line in reversed(lines):
+                parsed = json.loads(line)
+                if parsed.get("tenant_id") == tenant.tenant_id:
+                    matching_event = parsed
+                    break
+        if matching_event is not None:
+            break
+        time.sleep(0.05)
+
+    assert matching_event is not None, f"No telemetry event found for tenant {tenant.tenant_id}"
+    assert matching_event["tenant_id"] == tenant.tenant_id
+    assert matching_event["token_count"] == 3
+    assert matching_event["token_count"] == meter_totals["output_tokens"]
 
 
 def test_gateway_cache_hit_free_tokens_and_metered(

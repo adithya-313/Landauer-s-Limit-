@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -125,23 +126,25 @@ def test_quota_event_writer_logs_valid_jsonl_without_protective_actions() -> Non
         assert refusal_val >= 1.0
 
 
-@pytest.mark.asyncio
-async def test_pg_writer_write_usage_with_unset_dsn_does_not_raise() -> None:
+def test_pg_writer_write_usage_with_unset_dsn_does_not_raise() -> None:
     """Verify PgEventWriter.write_usage operates as a safe no-op when DSN is unset."""
-    writer = PgEventWriter(dsn=None)
-    await writer.start()
+    async def _test() -> None:
+        writer = PgEventWriter(dsn=None)
+        await writer.start()
 
-    event = UsageEvent(
-        run_id="run_test",
-        tenant_id="tenant_gamma",
-        engine="mock-engine",
-        prompt_tokens=10,
-        output_tokens=20,
-        cache_hit=False,
-        energy_cost=0.005,
-        currency="USD",
-    )
+        event = UsageEvent(
+            run_id="run_test",
+            tenant_id="tenant_gamma",
+            engine="mock-engine",
+            prompt_tokens=10,
+            output_tokens=20,
+            cache_hit=False,
+            energy_cost=0.005,
+            currency="USD",
+        )
 
-    # Should not raise any error
-    await writer.write_usage(event)
-    await writer.close()
+        # Should not raise any error
+        await writer.write_usage(event)
+        await writer.close()
+
+    asyncio.run(_test())
