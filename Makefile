@@ -22,7 +22,9 @@ TYPECHECK_MODULES := \
 	run_with_manifest.py \
 	scripts/verify_run_manifest.py \
 	scripts/gen_reproducibility_tables.py \
-	tenant_cache.py
+	tenant_cache.py \
+	pricing.py \
+	scripts/derive_engine_power.py
 
 # CI test files executed in headless, CPU-only environments
 CI_TEST_FILES := \
@@ -46,7 +48,8 @@ CI_TEST_FILES := \
 	tests/test_run_manifest.py \
 	tests/test_reproducibility_docs.py \
 	tests/test_phase12_auth.py \
-	tests/test_phase12_cache_isolation.py
+	tests/test_phase12_cache_isolation.py \
+	tests/test_phase12_pricing.py
 
 # GPU and live-server test files executed locally on GPU-enabled infrastructure
 GPU_TEST_FILES := \
