@@ -9,7 +9,7 @@ from typing import Any, Callable, Literal, Optional
 
 import asyncpg
 from fastapi import Request, Response
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 import yaml
 
 # Phase 12: Role-based access control (RBAC). Admin routes (/admin and /admin/*)
@@ -36,6 +36,24 @@ class Tenant(BaseModel):
     tier: Literal["free", "premium"]
     key_sha256: str = Field(..., pattern=r"^[a-f0-9]{64}$")
     cache_mode: Literal["isolated", "shared", "off"] = "isolated"
+    tokens_per_minute: Optional[int] = None
+    spend_cap_per_day: Optional[float] = None
+
+    @field_validator("tokens_per_minute")
+    @classmethod
+    def validate_tokens_per_minute(cls, v: Optional[int]) -> Optional[int]:
+        """Ensures tokens_per_minute is strictly positive if provided."""
+        if v is not None and v <= 0:
+            raise ValueError(f"tokens_per_minute must be > 0, got {v}")
+        return v
+
+    @field_validator("spend_cap_per_day")
+    @classmethod
+    def validate_spend_cap_per_day(cls, v: Optional[float]) -> Optional[float]:
+        """Ensures spend_cap_per_day is strictly positive if provided."""
+        if v is not None and v <= 0.0:
+            raise ValueError(f"spend_cap_per_day must be > 0, got {v}")
+        return v
 
 
 def _constant_time_lookup(raw_key: Optional[str], items: list[Any]) -> Optional[Any]:
@@ -86,6 +104,21 @@ class TenantStore:
         - Tenant matching the key, or None if raw_key is invalid or empty.
         """
         return _constant_time_lookup(raw_key, self.tenants)
+
+    def get(self, tenant_id: str) -> Optional[Tenant]:
+        """
+        Looks up a tenant by their tenant_id.
+
+        Inputs:
+        - tenant_id: Unique string identifier of the tenant.
+
+        Returns:
+        - Matching Tenant instance, or None if tenant_id is not found.
+        """
+        for t in self.tenants:
+            if t.tenant_id == tenant_id:
+                return t
+        return None
 
     def replace_tenants(self, new_tenants: list[Tenant]) -> None:
         """
@@ -302,9 +335,10 @@ async def load_tenants_from_pg(pool_or_dsn: Any) -> list[Tenant]:
                     "key_sha256": row["key_sha256"],
                 }
 
-        # Note: Postgres table schema is frozen and does not include cache_mode;
-        # Tenant models instantiated from database rows automatically receive
-        # the default cache_mode="isolated".
+        # Note: Postgres table schema is frozen and does not include cache_mode,
+        # tokens_per_minute, or spend_cap_per_day; Tenant models instantiated from
+        # database rows automatically receive the default cache_mode="isolated" and
+        # default to tokens_per_minute=None and spend_cap_per_day=None (unlimited).
         try:
             tenant = Tenant(**row_dict)
         except ValidationError as exc:
