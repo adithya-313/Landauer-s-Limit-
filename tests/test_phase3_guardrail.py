@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import time
+from typing import Optional
 
 from fastapi.testclient import TestClient
 import pytest
@@ -83,7 +84,7 @@ def test_guardrail_unexpected_error_fails_open(client: TestClient, monkeypatch: 
     monkeypatch.setattr(gateway, "observe_event", lambda ev: None)
 
     # Mock semantic cache hit so fail-open returns immediately without blocking on background queue worker
-    async def fake_check_cache(messages: list) -> dict:
+    async def fake_check_cache(messages: list, *, namespace: Optional[str] = None) -> dict:
         return {"choices": [{"message": {"role": "assistant", "content": "cached response"}}]}
 
     monkeypatch.setattr(gateway._cache_instance, "check_cache", fake_check_cache)
