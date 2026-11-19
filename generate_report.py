@@ -1383,6 +1383,7 @@ def main():
     """Entry point. Loads data, computes dashboards, prints Markdown to stdout and writes report.html."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", default=None, help="Directory containing archived inputs (reproduction mode)")
+    parser.add_argument("--output-dir", default=None, help="Directory to write report.md and report.html into")
     args = parser.parse_args()
 
     # Force stdout to UTF-8 so redirection on Windows doesn't use cp1252.
@@ -1390,6 +1391,8 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")
 
     input_dir = Path(args.input_dir) if args.input_dir else Path(".")
+    output_dir = Path(args.output_dir) if args.output_dir else Path(".")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load all agent_enabled=False telemetry records from the input directory.
     records = load_telemetry(str(input_dir))
@@ -1422,13 +1425,13 @@ def main():
 
     # Format and print Markdown (unchanged behaviour).
     report = format_markdown(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3, generated_at=generated_at)
-    with open("report.md", "w", encoding="utf-8", newline="\n") as fh:
+    with open(output_dir / "report.md", "w", encoding="utf-8", newline="\n") as fh:
         fh.write(report)
     print(report)
 
     # Also write a self-contained HTML dashboard.
     html_content = render_html(dashboard_1, dashboard_2_semantic, dashboard_2_prefix, dashboard_4, appendix, dashboard_3, generated_at=generated_at)
-    with open("report.html", "w", encoding="utf-8", newline="\n") as fh:
+    with open(output_dir / "report.html", "w", encoding="utf-8", newline="\n") as fh:
         fh.write(html_content)
     print("report.html written", file=sys.stderr)
 

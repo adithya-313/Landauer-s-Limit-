@@ -1,3 +1,11 @@
+# Generated lockfiles:
+#   requirements-ci.lock (installed by Docker and CI on Linux)
+#   requirements-ci-windows.lock (for local Windows venv development)
+# Regenerate Linux lock:
+#   uv pip compile requirements-ci.txt --python-platform x86_64-unknown-linux-gnu --python-version 3.12 --generate-hashes -o requirements-ci.lock
+# Regenerate Windows lock:
+#   uv pip compile requirements-ci.txt --python-platform x86_64-pc-windows-msvc --python-version 3.12 --generate-hashes -o requirements-ci-windows.lock
+
 -r requirements-gateway.txt
 pytest==8.4.2
 requests==2.32.3

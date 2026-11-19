@@ -1,0 +1,213 @@
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "current_total_live_tokens": 35, "timestamp": 1789829104.7381902}
+{"event": "kv_cache_stats", "allocated_blocks": 3, "free_blocks": 17, "fragmentation_ratio": 0.2708333333333333, "total_allocated_tokens": 48, "used_tokens": 35, "timestamp": 1789829104.7381902}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 37, "timestamp": 1789829104.7940063}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 39, "timestamp": 1789829104.8575807}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 41, "timestamp": 1789829104.924352}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 43, "timestamp": 1789829104.9738488}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 45, "timestamp": 1789829105.0391972}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 47, "timestamp": 1789829105.0841196}
+{"active_requests": ["164d1649-44c9-47f0-bfd4-36df59bd86fc", "8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 49, "timestamp": 1789829105.132829}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 2, "slots_freed": ["164d1649-44c9-47f0-bfd4-36df59bd86fc"], "requests_admitted": [], "current_total_live_tokens": 32, "timestamp": 1789829105.1839962}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 33, "timestamp": 1789829105.2580712}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 34, "timestamp": 1789829105.31207}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 35, "timestamp": 1789829105.37242}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 36, "timestamp": 1789829105.4266596}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 37, "timestamp": 1789829105.4852154}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 38, "timestamp": 1789829105.5327303}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 39, "timestamp": 1789829105.5916142}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 40, "timestamp": 1789829105.6480744}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 41, "timestamp": 1789829105.7444222}
+{"event": "kv_cache_stats", "allocated_blocks": 3, "free_blocks": 17, "fragmentation_ratio": 0.14583333333333334, "total_allocated_tokens": 48, "used_tokens": 41, "timestamp": 1789829105.7444222}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 42, "timestamp": 1789829105.8403838}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 43, "timestamp": 1789829105.8920262}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 44, "timestamp": 1789829105.9683998}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 45, "timestamp": 1789829106.0399861}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 46, "timestamp": 1789829106.1116598}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 47, "timestamp": 1789829106.1757658}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 48, "timestamp": 1789829106.2402287}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 49, "timestamp": 1789829106.2935343}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 50, "timestamp": 1789829106.3631704}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 51, "timestamp": 1789829106.4403615}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 52, "timestamp": 1789829106.5130334}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 53, "timestamp": 1789829106.5749686}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 54, "timestamp": 1789829106.637621}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 55, "timestamp": 1789829106.7062857}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 56, "timestamp": 1789829106.7703822}
+{"event": "kv_cache_stats", "allocated_blocks": 4, "free_blocks": 16, "fragmentation_ratio": 0.125, "total_allocated_tokens": 64, "used_tokens": 56, "timestamp": 1789829106.7703822}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 57, "timestamp": 1789829106.8317664}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 58, "timestamp": 1789829106.9059553}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 59, "timestamp": 1789829106.9916282}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 60, "timestamp": 1789829107.0508864}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 61, "timestamp": 1789829107.1072545}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 62, "timestamp": 1789829107.1895542}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 63, "timestamp": 1789829107.2711182}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 64, "timestamp": 1789829107.3395371}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 65, "timestamp": 1789829107.4815686}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 66, "timestamp": 1789829107.5777898}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 67, "timestamp": 1789829107.6628819}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 68, "timestamp": 1789829107.7335489}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 69, "timestamp": 1789829107.792565}
+{"event": "kv_cache_stats", "allocated_blocks": 5, "free_blocks": 15, "fragmentation_ratio": 0.1375, "total_allocated_tokens": 80, "used_tokens": 69, "timestamp": 1789829107.7936068}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 70, "timestamp": 1789829107.8598478}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 71, "timestamp": 1789829107.9268095}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 72, "timestamp": 1789829107.999102}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 73, "timestamp": 1789829108.0598176}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 74, "timestamp": 1789829108.1383958}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 75, "timestamp": 1789829108.2315402}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 76, "timestamp": 1789829108.352282}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 77, "timestamp": 1789829108.4832163}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 78, "timestamp": 1789829108.5746102}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 79, "timestamp": 1789829108.6325865}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 80, "timestamp": 1789829108.7009897}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 81, "timestamp": 1789829108.7589364}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 82, "timestamp": 1789829108.8189788}
+{"event": "kv_cache_stats", "allocated_blocks": 6, "free_blocks": 14, "fragmentation_ratio": 0.14583333333333334, "total_allocated_tokens": 96, "used_tokens": 82, "timestamp": 1789829108.8189788}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 83, "timestamp": 1789829108.9036102}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 84, "timestamp": 1789829108.9710896}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 85, "timestamp": 1789829109.0478745}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 86, "timestamp": 1789829109.1192327}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 87, "timestamp": 1789829109.1865342}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 88, "timestamp": 1789829109.272719}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 89, "timestamp": 1789829109.357573}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 90, "timestamp": 1789829109.4385917}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 91, "timestamp": 1789829109.5103788}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 92, "timestamp": 1789829109.5751765}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 93, "timestamp": 1789829109.6413798}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 94, "timestamp": 1789829109.717598}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 95, "timestamp": 1789829109.8782506}
+{"event": "kv_cache_stats", "allocated_blocks": 6, "free_blocks": 14, "fragmentation_ratio": 0.010416666666666666, "total_allocated_tokens": 96, "used_tokens": 95, "timestamp": 1789829109.8794389}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 96, "timestamp": 1789829109.9859915}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 97, "timestamp": 1789829110.04797}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 98, "timestamp": 1789829110.128751}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 99, "timestamp": 1789829110.1977177}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 100, "timestamp": 1789829110.2637038}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 101, "timestamp": 1789829110.3559232}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 102, "timestamp": 1789829110.4150302}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 103, "timestamp": 1789829110.477195}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 104, "timestamp": 1789829110.571838}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 105, "timestamp": 1789829110.660383}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 106, "timestamp": 1789829110.750054}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 107, "timestamp": 1789829110.8270814}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 108, "timestamp": 1789829110.8841126}
+{"event": "kv_cache_stats", "allocated_blocks": 7, "free_blocks": 13, "fragmentation_ratio": 0.03571428571428571, "total_allocated_tokens": 112, "used_tokens": 108, "timestamp": 1789829110.8841126}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 109, "timestamp": 1789829110.9503973}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 110, "timestamp": 1789829111.021254}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 111, "timestamp": 1789829111.0771723}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 112, "timestamp": 1789829111.133145}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 113, "timestamp": 1789829111.1855798}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 114, "timestamp": 1789829111.2569106}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 115, "timestamp": 1789829111.3384604}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 116, "timestamp": 1789829111.4017408}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 117, "timestamp": 1789829111.4536192}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 118, "timestamp": 1789829111.5363326}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 119, "timestamp": 1789829111.6009827}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 120, "timestamp": 1789829111.6694925}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 121, "timestamp": 1789829111.7252984}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 122, "timestamp": 1789829111.7866278}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 123, "timestamp": 1789829111.8639808}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 124, "timestamp": 1789829111.9483418}
+{"event": "kv_cache_stats", "allocated_blocks": 8, "free_blocks": 12, "fragmentation_ratio": 0.03125, "total_allocated_tokens": 128, "used_tokens": 124, "timestamp": 1789829111.9483418}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 125, "timestamp": 1789829112.0183215}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 126, "timestamp": 1789829112.097229}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 127, "timestamp": 1789829112.1590598}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 128, "timestamp": 1789829112.241066}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 129, "timestamp": 1789829112.3079374}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 130, "timestamp": 1789829112.3928885}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 131, "timestamp": 1789829112.4570227}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 132, "timestamp": 1789829112.5110784}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 133, "timestamp": 1789829112.5677812}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 134, "timestamp": 1789829112.6296082}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 135, "timestamp": 1789829112.681641}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 136, "timestamp": 1789829112.7518177}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 137, "timestamp": 1789829112.8233054}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 138, "timestamp": 1789829112.8905737}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 139, "timestamp": 1789829112.9673395}
+{"event": "kv_cache_stats", "allocated_blocks": 9, "free_blocks": 11, "fragmentation_ratio": 0.034722222222222224, "total_allocated_tokens": 144, "used_tokens": 139, "timestamp": 1789829112.9673395}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 140, "timestamp": 1789829113.0529237}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 141, "timestamp": 1789829113.1035051}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 142, "timestamp": 1789829113.2081263}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 143, "timestamp": 1789829113.290453}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 144, "timestamp": 1789829113.3658662}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 145, "timestamp": 1789829113.4533336}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 146, "timestamp": 1789829113.5455914}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 147, "timestamp": 1789829113.607037}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 148, "timestamp": 1789829113.6726723}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 149, "timestamp": 1789829113.757594}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 150, "timestamp": 1789829113.8278353}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 151, "timestamp": 1789829113.8817394}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 152, "timestamp": 1789829113.9457562}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 153, "timestamp": 1789829113.9968667}
+{"event": "kv_cache_stats", "allocated_blocks": 10, "free_blocks": 10, "fragmentation_ratio": 0.04375, "total_allocated_tokens": 160, "used_tokens": 153, "timestamp": 1789829113.9968667}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 154, "timestamp": 1789829114.058094}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 155, "timestamp": 1789829114.1186452}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 156, "timestamp": 1789829114.2005537}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 157, "timestamp": 1789829114.259873}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 158, "timestamp": 1789829114.320181}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 159, "timestamp": 1789829114.385083}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 160, "timestamp": 1789829114.4462926}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 161, "timestamp": 1789829114.5211766}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 162, "timestamp": 1789829114.590835}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 163, "timestamp": 1789829114.683433}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 164, "timestamp": 1789829114.7531524}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 165, "timestamp": 1789829114.8250134}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 166, "timestamp": 1789829114.8951728}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 167, "timestamp": 1789829114.969176}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 168, "timestamp": 1789829115.0519843}
+{"event": "kv_cache_stats", "allocated_blocks": 11, "free_blocks": 9, "fragmentation_ratio": 0.045454545454545456, "total_allocated_tokens": 176, "used_tokens": 168, "timestamp": 1789829115.0519843}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 169, "timestamp": 1789829115.106772}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 170, "timestamp": 1789829115.1717014}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 171, "timestamp": 1789829115.222955}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 172, "timestamp": 1789829115.2869425}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 173, "timestamp": 1789829115.3466392}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 174, "timestamp": 1789829115.4218783}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 175, "timestamp": 1789829115.4786706}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 176, "timestamp": 1789829115.550043}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 177, "timestamp": 1789829115.6062202}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 178, "timestamp": 1789829115.6902099}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 179, "timestamp": 1789829115.8286626}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 180, "timestamp": 1789829115.9025643}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 181, "timestamp": 1789829115.961435}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 182, "timestamp": 1789829116.022679}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 183, "timestamp": 1789829116.0883346}
+{"event": "kv_cache_stats", "allocated_blocks": 12, "free_blocks": 8, "fragmentation_ratio": 0.046875, "total_allocated_tokens": 192, "used_tokens": 183, "timestamp": 1789829116.0883346}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 184, "timestamp": 1789829116.1437478}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 185, "timestamp": 1789829116.2047558}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 186, "timestamp": 1789829116.269405}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 187, "timestamp": 1789829116.3610826}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 188, "timestamp": 1789829116.4349744}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 189, "timestamp": 1789829116.4941578}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 190, "timestamp": 1789829116.557857}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 191, "timestamp": 1789829116.6216848}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 192, "timestamp": 1789829116.682625}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 193, "timestamp": 1789829116.7609074}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 194, "timestamp": 1789829116.8361924}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 195, "timestamp": 1789829116.9075725}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 196, "timestamp": 1789829117.0079267}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 197, "timestamp": 1789829117.079832}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 198, "timestamp": 1789829117.1467443}
+{"event": "kv_cache_stats", "allocated_blocks": 13, "free_blocks": 7, "fragmentation_ratio": 0.04807692307692308, "total_allocated_tokens": 208, "used_tokens": 198, "timestamp": 1789829117.1467443}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 199, "timestamp": 1789829117.2334845}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 200, "timestamp": 1789829117.3161757}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 201, "timestamp": 1789829117.3882418}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 202, "timestamp": 1789829117.4662673}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 203, "timestamp": 1789829117.5320847}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 204, "timestamp": 1789829117.6185226}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 205, "timestamp": 1789829117.679384}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 206, "timestamp": 1789829117.7563424}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 207, "timestamp": 1789829117.8474793}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 208, "timestamp": 1789829117.9147723}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 209, "timestamp": 1789829117.9790442}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 210, "timestamp": 1789829118.0655994}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 211, "timestamp": 1789829118.1635745}
+{"event": "kv_cache_stats", "allocated_blocks": 14, "free_blocks": 6, "fragmentation_ratio": 0.05803571428571429, "total_allocated_tokens": 224, "used_tokens": 211, "timestamp": 1789829118.1635745}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 212, "timestamp": 1789829118.2306314}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 213, "timestamp": 1789829118.3113613}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 214, "timestamp": 1789829118.3873477}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 215, "timestamp": 1789829118.4789507}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 216, "timestamp": 1789829118.5521975}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 217, "timestamp": 1789829118.612467}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 218, "timestamp": 1789829118.6960642}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 219, "timestamp": 1789829118.7579615}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 220, "timestamp": 1789829118.8483403}
+{"active_requests": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "tokens_processed": 1, "slots_freed": [], "requests_admitted": [], "current_total_live_tokens": 221, "timestamp": 1789829118.915184}
+{"active_requests": [], "tokens_processed": 1, "slots_freed": ["8aa89a92-7fb8-438f-9242-8e394b2045d3"], "requests_admitted": [], "current_total_live_tokens": 0, "timestamp": 1789829118.98097}

@@ -5,6 +5,7 @@ __pycache__/
 
 # ONNX exported model (binary artifact, not source)
 *.onnx
+*.onnx.sha256
 
 # Validation helper (non-essential)
 validate.py
@@ -46,5 +47,8 @@ report.html
 # Phase 10 CI artifacts
 ci-models/
 deploy/ci-gateway-config/tenants.yaml
+
+# Phase 11 run manifest artifacts
+runs/
 
 

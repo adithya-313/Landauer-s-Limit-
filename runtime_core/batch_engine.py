@@ -8,6 +8,11 @@ import threading
 import queue
 import logging
 from typing import List, Dict, Optional, Any
+from pathlib import Path
+
+from huggingface_hub.constants import HF_HUB_CACHE
+
+import model_manifest
 from .kv_cache_manager import KVCacheManager
 from .prefix_hashing import BLOCK_SIZE
 from prometheus_client import start_http_server, Gauge
@@ -56,21 +61,79 @@ class RequestState:
         # The most recently generated token ID (shape: [1, 1])
         self.latest_token: Optional[torch.Tensor] = None
 
+def resolve_and_verify_model(model_id: str) -> str:
+    """Resolve and cryptographically verify model artifacts, returning pinned revision.
+
+    Purpose:
+        Ensure that requested model artifacts are registered, verified, and intact
+        before loading tokenizers and model weights into memory.
+
+    Inputs:
+        model_id (str): Model identifier to verify against manifest.yaml.
+
+    Outputs:
+        str: Pinned revision string for the verified model.
+
+    Errors:
+        ValueError: If model_id is not in manifest.
+        ModelChecksumError: If model is marked unverified or artifact hashes mismatch.
+        FileNotFoundError: If manifest or artifact files are missing.
+    """
+    manifest = model_manifest.load_manifest()
+    models = manifest.get("models", {})
+    if model_id not in models:
+        raise ValueError(f"Unknown model: {model_id}")
+
+    model_entry = models[model_id]
+    if not model_entry.get("verified", False):
+        raise model_manifest.ModelChecksumError(
+            f"Model {model_id} marked unverified in manifest; run verification first"
+        )
+
+    revision = str(model_entry.get("revision", ""))
+    if Path(model_id).exists():
+        files_root = Path(model_id)
+    else:
+        repo = model_entry.get("repo", model_id)
+        if "/" in repo:
+            org, name = repo.split("/", 1)
+            files_root = (
+                Path(HF_HUB_CACHE)
+                / f"models--{org}--{name}"
+                / "snapshots"
+                / revision
+            )
+        else:
+            files_root = Path(".")
+
+    model_manifest.verify_model(model_id, files_root=files_root)
+    return revision
+
+
 class BatchEngine:
     def __init__(self, model_id: str = "Qwen/Qwen2.5-1.5B-Instruct", enable_prefix_cache: bool = True):
         self.enable_prefix_cache = enable_prefix_cache
         print("Initializing BatchEngine...")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
+        revision = resolve_and_verify_model(model_id)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            revision=revision,
+            padding_side="left",
+        )
         
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
         print("Loading model in 4-bit...")
         quant_config = BitsAndBytesConfig(load_in_4bit=True)
+        from_pretrained_kwargs: Dict[str, Any] = {
+            "quantization_config": quant_config,
+            "device_map": "auto",
+            "revision": revision,
+        }
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            quantization_config=quant_config,
-            device_map="auto"
+            **from_pretrained_kwargs,
         )
         self.device = self.model.device
         

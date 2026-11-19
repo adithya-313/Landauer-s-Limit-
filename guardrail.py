@@ -27,6 +27,8 @@ import onnxruntime
 import faiss
 from transformers import AutoTokenizer
 
+from model_manifest import ModelChecksumError, verify_file
+
 
 # ---------------------------------------------------------------------------
 # CONSTANTS
@@ -36,6 +38,60 @@ ONNX_MODEL_PATH: str = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "all-MiniLM-L6-v2.onnx",
 )
+
+ONNX_SHA256_PATH: str = ONNX_MODEL_PATH + ".sha256"
+
+
+def verify_guardrail_onnx(
+    onnx_path: str = ONNX_MODEL_PATH,
+    sha256_path: str = ONNX_SHA256_PATH,
+) -> None:
+    """Verify cryptographic integrity of the ONNX guardrail embedding model against its sidecar SHA-256 file.
+
+    Purpose:
+        Ensure that the binary ONNX model loaded for semantic guardrails and caching
+        matches the exact cryptographic signature recorded at export time, preventing
+        loading corrupted, truncated, or tampered embeddings models.
+
+    Inputs:
+        onnx_path (str, optional): Path to the ONNX model binary (defaults to ONNX_MODEL_PATH).
+        sha256_path (str, optional): Path to the sidecar checksum file (defaults to ONNX_SHA256_PATH).
+
+    Outputs:
+        None (returns silently upon successful checksum verification).
+
+    Key Logic:
+        Checks existence of the sidecar checksum file; raises FileNotFoundError with the exact
+        creation command if missing. Reads the expected 64-character hash from the sidecar file
+        and delegates to model_manifest.verify_file to hash the ONNX binary and assert match.
+
+    Errors:
+        FileNotFoundError: If the sidecar checksum file does not exist, naming the sidecar path
+            and the exact command that creates it:
+            python -c "import hashlib; h=hashlib.sha256(open('all-MiniLM-L6-v2.onnx','rb').read()).hexdigest(); open('all-MiniLM-L6-v2.onnx.sha256','w').write(h + '\\n')"
+        ModelChecksumError: If the computed ONNX binary hash does not match the sidecar hash.
+
+    Complexity:
+        Time: O(S) where S is the file size of the ONNX binary (~90 MiB).
+        Space: O(1) auxiliary memory.
+    """
+    if not os.path.isfile(sha256_path):
+        cmd = (
+            'python -c "import hashlib; '
+            'h=hashlib.sha256(open(\'all-MiniLM-L6-v2.onnx\',\'rb\').read()).hexdigest(); '
+            'open(\'all-MiniLM-L6-v2.onnx.sha256\',\'w\').write(h + \'\\n\')"'
+        )
+        raise FileNotFoundError(
+            f"Missing ONNX checksum sidecar: {sha256_path}. "
+            f"Generate it with: {cmd}"
+        )
+    with open(sha256_path, "r", encoding="utf-8") as fh:
+        sidecar_hash = fh.read().strip()
+    verify_file(onnx_path, sidecar_hash)
+
+
+# Verify ONNX model integrity before creating inference session
+verify_guardrail_onnx(ONNX_MODEL_PATH, ONNX_SHA256_PATH)
 
 EMBEDDING_DIM: int = 384  # all-MiniLM-L6-v2 output dimension
 

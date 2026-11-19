@@ -1,3 +1,7 @@
+# Generated lockfile: requirements-gateway.lock (installed by Docker and CI on Linux)
+# Regenerate Linux lock:
+#   uv pip compile requirements-gateway.txt --python-platform x86_64-unknown-linux-gnu --python-version 3.12 --generate-hashes -o requirements-gateway.lock
+
 onnxruntime==1.24.2
 faiss-cpu==1.14.3
 transformers==5.12.1
