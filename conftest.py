@@ -18,17 +18,23 @@ import tempfile
 _TMP_DIR = tempfile.TemporaryDirectory(prefix="landauer_ci_env_")
 _TEMP_PATH = Path(_TMP_DIR.name)
 
-# Generate an ephemeral API key for the test session
+# Generate ephemeral API keys for the test session
 _RAW_KEY = secrets.token_urlsafe(32)
 _KEY_HASH = hashlib.sha256(_RAW_KEY.encode("utf-8")).hexdigest()
 
-# Write a deterministic test tenants.yaml (premium tier for local_dev)
+_RAW_ADMIN_KEY = secrets.token_urlsafe(32)
+_ADMIN_KEY_HASH = hashlib.sha256(_RAW_ADMIN_KEY.encode("utf-8")).hexdigest()
+
+# Write a deterministic test tenants.yaml (premium tier for local_dev, admin for local_admin)
 _TENANTS_FILE = _TEMP_PATH / "tenants.yaml"
 _TENANTS_FILE.write_text(
     f"tenants:\n"
     f"  - tenant_id: local_dev\n"
     f"    tier: premium\n"
-    f"    key_sha256: {_KEY_HASH}\n",
+    f"    key_sha256: {_KEY_HASH}\n"
+    f"admins:\n"
+    f"  - admin_id: local_admin\n"
+    f"    key_sha256: {_ADMIN_KEY_HASH}\n",
     encoding="utf-8",
 )
 
@@ -37,6 +43,7 @@ _EVENTS_FILE = _TEMP_PATH / "gateway_events.jsonl"
 # Always set environment variables to point to the isolated test directory
 # so tests never depend on the user's private key or overwrite production logs.
 os.environ["LANDAUER_API_KEY"] = _RAW_KEY
+os.environ["LANDAUER_ADMIN_API_KEY"] = _RAW_ADMIN_KEY
 os.environ["LANDAUER_TENANTS_PATH"] = str(_TENANTS_FILE)
 os.environ["LANDAUER_EVENTS_PATH"] = str(_EVENTS_FILE)
 

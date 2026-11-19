@@ -59,6 +59,7 @@ COPY gateway.py \
      request_queue.py \
      semantic_cache.py \
      telemetry.py \
+     tenant_cache.py \
      tenants.py \
      /app/
 

@@ -1,0 +1,24 @@
+currency: INR
+electricity_rate_per_kwh: 7.20
+# Excludes fixed charge, electricity duty, fuel surcharge and taxes;
+# 151-200 slab chosen because a 150-250 unit/month household's marginal units fall mostly there.
+rate_source:
+  supplier: "Kerala State Electricity Board Ltd (KSEB)"
+  tariff: "LT-I Domestic, telescopic slab 151-200 units/month, energy charge only"
+  url: "https://kseb.in/articledetail/eyJpdiI6Ii83VFNwbUpLUFJsT1BIaVdsck1iSGc9PSIsInZhbHVlIjoiRVQxaXJ2RmMxN0E4akJjSWc1QStuZz09IiwibWFjIjoiZDVkMDA0YTUwZmQyMjRlOTIzYTBiNjQ2NGY2ZTI2NWUxMTczZTMwM2IyNTJmM2I1MTlmN2Y1YzU3ODc1ZjU4ZiIsInRhZyI6IiJ9"
+  effective_from: "2025-04-01"
+  valid_until: "2027-03-31"
+  retrieved_on: "2026-11-19"
+
+# ESTIMATES derived from measured Phase 8 power logs
+# Derivation comment (Ground Rule 2): Mean of all 1 Hz nvidia-smi power.draw
+# samples in archive/phase8/power_draw_<run_id>.log, grouped by the engine in each
+# run's telemetry_<run_id>.jsonl run_metadata, pooled across concurrency 1/10/50.
+# Sample counts: vllm_local 194, llamacpp_local 268, custom_runtime 133,
+# colab_cloud 144. colab_cloud is local-laptop GPU draw only — the remote Colab GPU
+# is not measured, so its cost is a lower bound.
+engine_power_watts:
+  vllm_local: 67.95
+  llamacpp_local: 69.82
+  custom_runtime: 31.54
+  colab_cloud: 5.29

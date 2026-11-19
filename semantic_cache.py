@@ -304,7 +304,10 @@ class DeterministicSemanticCache:
     # ------------------------------------------------------------------
 
     async def check_cache(
-        self, messages: List[Dict[str, str]],
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        namespace: Optional[str] = None,
     ) -> Optional[Dict]:
         """
         Check whether a semantically similar query exists in the cache.
@@ -314,20 +317,23 @@ class DeterministicSemanticCache:
         2. If the lock is None:
            - Log "Cache aborted: Unknown or ambiguous entity."
            - Return None (Cache Miss).
-        3. If we have a lock, convert ONLY the current user message into a
+        3. If namespace is provided, prefix the lock: f"{namespace}|{lock_string}".
+        4. If we have a lock, convert ONLY the current user message into a
            math vector using self.embedding_function.
-        4. Search the FAISS index for the top 5 closest vectors.
-        5. For every result with similarity >= self.threshold (0.88):
+        5. Search the FAISS index for the top 5 closest vectors.
+        6. For every result with similarity >= self.threshold (0.88):
            - Check our OrderedDict. Does the saved lock string EXACTLY match
              our current lock string?
            - If YES, log "Cache Hit", update the LRU, and return the saved
              response.
-        6. If no matches pass both tests, return None (Cache Miss).
+        7. If no matches pass both tests, return None (Cache Miss).
 
         Parameters
         ----------
         messages : list of dict
             The full conversation history.
+        namespace : str or None, optional
+            Namespace prefix to isolate cache entries per tenant or partition.
 
         Returns
         -------
@@ -347,6 +353,9 @@ class DeterministicSemanticCache:
                 "Cache check aborted: Unknown or ambiguous entity. lookup_latency_ms=%.2f", lookup_latency_ms
             )
             return None
+
+        if namespace is not None:
+            lock_string = f"{namespace}|{lock_string}"
 
         # Step 3: Extract the current user message and embed it.
         current_user_text = ""
@@ -449,16 +458,23 @@ class DeterministicSemanticCache:
             logger.error("Failed to write to semantic_cache_events.jsonl: %s", e)
 
 
-    async def insert(self, messages: List[Dict[str, str]], response: dict):
+    async def insert(
+        self,
+        messages: List[Dict[str, str]],
+        response: dict,
+        *,
+        namespace: Optional[str] = None,
+    ):
         """
         Insert a new query-response pair into the cache.
 
         STORY LOGIC:
         1. Generate the lock string from the messages.
         2. If lock is None, do not cache (unknown entity — safer to skip).
-        3. Embed the current user message.
-        4. If the LRU is full (10,000 entries), evict the oldest item.
-        5. Add the vector to FAISS and store the metadata in the LRU dict.
+        3. If namespace is provided, prefix the lock: f"{namespace}|{lock_string}".
+        4. Embed the current user message.
+        5. If the LRU is full (10,000 entries), evict the oldest item.
+        6. Add the vector to FAISS and store the metadata in the LRU dict.
 
         Parameters
         ----------
@@ -466,6 +482,8 @@ class DeterministicSemanticCache:
             The conversation history.
         response : dict
             The response to cache.
+        namespace : str or None, optional
+            Namespace prefix to isolate cache entries per tenant or partition.
         """
         # Step 1: Generate the lock.
         lock_string = self.extractor.generate_lock(messages)
@@ -474,6 +492,9 @@ class DeterministicSemanticCache:
                 "Cache insert skipped: No lock (unknown/ambiguous entity).",
             )
             return
+
+        if namespace is not None:
+            lock_string = f"{namespace}|{lock_string}"
 
         # Step 2: Extract the current user message and embed it.
         current_user_text = ""
