@@ -288,3 +288,103 @@ def test_load_admins_admin_hash_equal_to_tenant_hash_raises(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="overlaps with an existing tenant key"):
         load_admins(config_file)
+
+
+def test_bearer_and_x_api_key_resolve_to_same_state(
+    test_setup: tuple[TestClient, str, str],
+) -> None:
+    """Verifies that X-API-Key and Authorization: Bearer resolve to identical tenant request state."""
+    client, tenant_key, _ = test_setup
+
+    resp_x_key = client.post("/v1/chat/completions", headers={"X-API-Key": tenant_key})
+    resp_bearer = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {tenant_key}"},
+    )
+
+    assert resp_x_key.status_code == 200
+    assert resp_bearer.status_code == 200
+    assert resp_x_key.json() == resp_bearer.json()
+    assert resp_bearer.json() == {
+        "tenant_id": "test_tenant",
+        "tier": "premium",
+        "role": "tenant",
+    }
+
+
+def test_bearer_lowercase_scheme_works(
+    test_setup: tuple[TestClient, str, str],
+) -> None:
+    """Verifies that scheme matching is case-insensitive ('bearer' lowercase per RFC 6750)."""
+    client, tenant_key, _ = test_setup
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"bearer {tenant_key}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == "test_tenant"
+    assert response.json()["role"] == "tenant"
+
+
+def test_basic_auth_returns_401_identical_bytes(
+    test_setup: tuple[TestClient, str, str],
+) -> None:
+    """Verifies that non-Bearer Authorization headers (e.g. Basic) return 401 with identical bytes."""
+    client, _, _ = test_setup
+
+    resp_basic = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Basic dXNlcjpwYXNz"},
+    )
+    resp_missing = client.post("/v1/chat/completions")
+
+    assert resp_basic.status_code == 401
+    assert resp_basic.content == resp_missing.content
+
+
+def test_empty_bearer_returns_401(
+    test_setup: tuple[TestClient, str, str],
+) -> None:
+    """Verifies that an empty Bearer token returns 401 with identical bytes."""
+    client, _, _ = test_setup
+
+    resp_empty = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer "},
+    )
+    resp_missing = client.post("/v1/chat/completions")
+
+    assert resp_empty.status_code == 401
+    assert resp_empty.content == resp_missing.content
+
+
+def test_conflicting_headers_returns_401(
+    test_setup: tuple[TestClient, str, str],
+) -> None:
+    """Verifies that differing X-API-Key and Bearer headers are treated as invalid (401)."""
+    client, tenant_key, _ = test_setup
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={
+            "X-API-Key": tenant_key,
+            "Authorization": "Bearer different_conflicting_token",
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == 401
+
+
+def test_bearer_admin_key_on_admin_route_returns_200(
+    test_setup: tuple[TestClient, str, str],
+) -> None:
+    """Verifies that an admin key supplied via Authorization: Bearer succeeds on /admin routes."""
+    client, _, admin_key = test_setup
+
+    response = client.get(
+        "/admin/engines",
+        headers={"Authorization": f"Bearer {admin_key}"},
+    )
+    assert response.status_code == 200
+

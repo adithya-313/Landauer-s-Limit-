@@ -429,6 +429,53 @@ _FORBIDDEN_ERROR_BYTES = json.dumps(
 EXEMPT_ROUTES = {("GET", "/health"), ("GET", "/metrics")}
 
 
+def extract_raw_key(request: Request) -> Optional[str]:
+    """
+    Extracts the API credential from either the X-API-Key or Authorization: Bearer header.
+
+    Inputs:
+    - request: The incoming HTTP request.
+
+    Returns:
+    - Plaintext key string, or None if credentials are missing, invalid, or conflicting.
+
+    Header Precedence & Collision Rules:
+    - X-API-Key: used if present and non-empty.
+    - Authorization: Bearer <token>: used if present and valid (scheme case-insensitive per RFC 6750).
+    - If BOTH headers are present and non-empty with differing values, returns None.
+      Security Note: Ambiguous credentials must not silently pick one header over another,
+      as that could mask configuration errors or permit header-smuggling bypasses.
+    - Unsupported schemes (e.g. "Basic ...") or empty token remainders return None.
+    """
+    raw_x_key = request.headers.get("x-api-key")
+    x_key = raw_x_key.strip() if raw_x_key and raw_x_key.strip() else None
+
+    raw_auth = request.headers.get("authorization")
+    bearer_key: Optional[str] = None
+    if raw_auth:
+        stripped_auth = raw_auth.strip()
+        if stripped_auth.lower().startswith("bearer "):
+            remainder = stripped_auth[7:].strip()
+            if remainder:
+                bearer_key = remainder
+
+    # Check for presence of both credential headers
+    if x_key is not None and raw_auth is not None and raw_auth.strip():
+        # Both headers are present: they must match exactly, otherwise reject as ambiguous
+        if bearer_key is None or x_key != bearer_key:
+            # Ambiguous credentials: do not guess or silently prioritize one over the other
+            return None
+        return x_key
+
+    if x_key is not None:
+        return x_key
+
+    if bearer_key is not None:
+        return bearer_key
+
+    return None
+
+
 def make_api_key_middleware(
     store: TenantStore,
     admin_store: Optional[AdminStore] = None,
@@ -455,7 +502,7 @@ def make_api_key_middleware(
         path = request.url.path
         is_admin_path = path == "/admin" or path.startswith("/admin/")
 
-        raw_key = request.headers.get("x-api-key")
+        raw_key = extract_raw_key(request)
 
         if is_admin_path:
             admin = effective_admin_store.lookup(raw_key)
