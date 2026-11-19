@@ -54,7 +54,8 @@ CI_TEST_FILES := \
 	tests/test_phase12_cache_isolation.py \
 	tests/test_phase12_pricing.py \
 	tests/test_phase12_quota.py \
-	tests/test_phase12_metering.py
+	tests/test_phase12_metering.py \
+	tests/test_phase12_gateway_quota.py
 
 # GPU and live-server test files executed locally on GPU-enabled infrastructure
 GPU_TEST_FILES := \
