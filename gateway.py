@@ -43,6 +43,9 @@ from guardrail import guardrail as _guardrail_instance
 
 # The Semantic Cache (Phase 4) — FAISS IndexIDMap + LRU eviction cache.
 from semantic_cache import semantic_cache as _cache_instance
+from tenant_cache import TenantSemanticCache
+
+_tenant_cache = TenantSemanticCache(_cache_instance)
 
 # The Multi-Engine Router (Phase 5) — dispatches to vLLM, llama.cpp, Colab, etc.
 from adapters.router import EngineRouter
@@ -60,6 +63,7 @@ from payload_guard import check_payload_size
 from pg_writer import PgEventWriter
 from tenants import (
     default_tenants_path,
+    get_cache_mode,
     get_tenant_context,
     load_admins,
     load_tenants,
@@ -428,8 +432,9 @@ async def create_chat_completion(
     agent_enabled = raw_agent == "true"
     requested_engine = request_body.engine or "vllm_local"
 
-    # Determine authoritative tenant tier from authenticated request state
+    # Determine authoritative tenant tier and cache mode from authenticated request state
     tenant_id, effective_tier = get_tenant_context(request)
+    cache_mode = get_cache_mode(request)
     if request_body.tier != effective_tier:
         logger.info(
             "Client requested tier '%s', but authoritative tenant tier is '%s'.",
@@ -509,7 +514,11 @@ async def create_chat_completion(
         degraded = True
 
     # --- Step 5: Check the semantic cache ---
-    cached_response = await _cache_instance.check_cache(messages_dicts)
+    cached_response = await _tenant_cache.check(
+        messages_dicts,
+        tenant_id=tenant_id,
+        cache_mode=cache_mode,
+    )
 
     # --- Step 6: Cache Hit — return immediately ---
     if cached_response is not None:
@@ -646,14 +655,19 @@ async def create_chat_completion(
                         "total_tokens": 0,
                     },
                 )
-                await _cache_instance.insert(messages_dicts, response.model_dump())
+                await _tenant_cache.insert(
+                    messages_dicts,
+                    response.model_dump(),
+                    tenant_id=tenant_id,
+                    cache_mode=cache_mode,
+                )
                 logger.info(
                     "Cache inserted for engine='%s' (%d chars).",
                     request_body.engine, len(full_content),
                 )
 
     # Build the response headers.
-    stream_headers = {"X-Cache": "MISS"}
+    stream_headers = {"X-Cache": "BYPASS" if cache_mode == "off" else "MISS"}
     if degraded:
         stream_headers["X-Guardrail-Degraded"] = "true"
 

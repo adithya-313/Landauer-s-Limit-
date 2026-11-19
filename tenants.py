@@ -35,6 +35,7 @@ class Tenant(BaseModel):
     tenant_id: str = Field(..., pattern=r"^[a-z0-9_]{1,64}$")
     tier: Literal["free", "premium"]
     key_sha256: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    cache_mode: Literal["isolated", "shared", "off"] = "isolated"
 
 
 def _constant_time_lookup(raw_key: Optional[str], items: list[Any]) -> Optional[Any]:
@@ -146,6 +147,33 @@ def get_tenant_context(request: Any) -> tuple[str, str]:
         raise RuntimeError("tenant context missing — auth middleware not applied")
 
     return str(tenant_id), str(tier)
+
+
+def get_cache_mode(request: Any) -> str:
+    """
+    Extracts the authenticated tenant cache mode from the request state.
+
+    Inputs:
+    - request: The incoming HTTP request or request-like object.
+
+    Returns:
+    - str cache mode ('isolated', 'shared', or 'off').
+
+    Errors:
+    - Raises RuntimeError("cache mode missing — auth middleware not applied")
+      if request.state is absent or cache_mode is absent or None.
+    """
+    if not hasattr(request, "state"):
+        raise RuntimeError("cache mode missing — auth middleware not applied")
+    state = request.state
+    if not hasattr(state, "cache_mode"):
+        raise RuntimeError("cache mode missing — auth middleware not applied")
+
+    cache_mode = state.cache_mode
+    if cache_mode is None:
+        raise RuntimeError("cache mode missing — auth middleware not applied")
+
+    return str(cache_mode)
 
 
 def default_tenants_path() -> Path:
@@ -274,6 +302,9 @@ async def load_tenants_from_pg(pool_or_dsn: Any) -> list[Tenant]:
                     "key_sha256": row["key_sha256"],
                 }
 
+        # Note: Postgres table schema is frozen and does not include cache_mode;
+        # Tenant models instantiated from database rows automatically receive
+        # the default cache_mode="isolated".
         try:
             tenant = Tenant(**row_dict)
         except ValidationError as exc:
@@ -537,6 +568,7 @@ def make_api_key_middleware(
         request.state.tenant_id = tenant.tenant_id
         request.state.tier = tenant.tier
         request.state.role = "tenant"
+        request.state.cache_mode = tenant.cache_mode
 
         return await call_next(request)
 
