@@ -94,6 +94,9 @@ def test_require_tables_passes_when_all_tables_present():
         "CREATE TABLE public.alembic_version (\n"
         "    version_num character varying(32) NOT NULL\n"
         ");\n"
+        "CREATE TABLE public.usage_events (\n"
+        "    id bigint NOT NULL\n"
+        ");\n"
     )
     # Should complete without raising SystemExit
     require_tables(dump, "test_db")
@@ -132,4 +135,27 @@ def test_require_tables_fails_when_run_manifests_missing(capsys):
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "SCHEMA_PARITY: FAIL (missing table public.run_manifests in parity_fresh)" in captured.err
+
+
+def test_require_tables_fails_when_usage_events_missing(capsys):
+    """Verify require_tables exits 1 and names missing usage_events table."""
+    dump_missing_usage_events = (
+        "CREATE TABLE public.telemetry_events (\n"
+        "    id integer NOT NULL\n"
+        ");\n"
+        "CREATE TABLE public.tenants (\n"
+        "    tenant_id text NOT NULL\n"
+        ");\n"
+        "CREATE TABLE public.run_manifests (\n"
+        "    run_id text NOT NULL\n"
+        ");\n"
+        "CREATE TABLE public.alembic_version (\n"
+        "    version_num character varying(32) NOT NULL\n"
+        ");\n"
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        require_tables(dump_missing_usage_events, "parity_fresh")
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "SCHEMA_PARITY: FAIL (missing table public.usage_events in parity_fresh)" in captured.err
 

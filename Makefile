@@ -24,7 +24,8 @@ TYPECHECK_MODULES := \
 	scripts/gen_reproducibility_tables.py \
 	tenant_cache.py \
 	pricing.py \
-	scripts/derive_engine_power.py
+	scripts/derive_engine_power.py \
+	start_gateway.py
 
 # CI test files executed in headless, CPU-only environments
 CI_TEST_FILES := \

@@ -40,11 +40,15 @@ RUN useradd -m -u 1000 appuser
 WORKDIR /app
 
 COPY requirements-gateway.lock /tmp/requirements-gateway.lock
+COPY requirements-migrations.lock /tmp/requirements-migrations.lock
 RUN pip install --no-cache-dir -r /tmp/requirements-gateway.lock \
-    && rm /tmp/requirements-gateway.lock
+    && python -m venv /opt/migrate \
+    && /opt/migrate/bin/pip install --no-cache-dir -r /tmp/requirements-migrations.lock \
+    && rm /tmp/requirements-gateway.lock /tmp/requirements-migrations.lock
 
 # Explicitly copy source files imported by gateway
 COPY gateway.py \
+     start_gateway.py \
      admin_routes.py \
      admission_controller.py \
      circuit_breaker.py \
@@ -64,6 +68,9 @@ COPY gateway.py \
      /app/
 
 COPY adapters /app/adapters
+COPY alembic.ini /app/alembic.ini
+COPY migrations /app/migrations
+COPY db /app/db
 
 # Copy exported ONNX model and cached HuggingFace tokenizer
 COPY --from=export /export/all-MiniLM-L6-v2.onnx /app/all-MiniLM-L6-v2.onnx
@@ -72,7 +79,7 @@ COPY --from=export /hf /hf
 
 # Create necessary directories and configure permissions
 RUN mkdir -p /app/config /app/telemetry \
-    && chown -R appuser:appuser /app /hf
+    && chown -R appuser:appuser /opt/migrate /app /hf
 
 USER appuser
 
@@ -85,5 +92,5 @@ ENV HF_HOME=/hf \
 
 EXPOSE 8080
 
-CMD ["uvicorn", "gateway:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "start_gateway.py"]
 
