@@ -62,7 +62,7 @@ from admin_routes import EngineAdmin, init_admin, router as admin_router
 from payload_guard import check_payload_size
 from pg_writer import PgEventWriter
 from tenants import (
-    Tenant,
+    _AUTH_ERROR_BYTES,
     default_tenants_path,
     get_cache_mode,
     get_tenant_context,
@@ -122,17 +122,17 @@ if _tenant_source not in ("yaml", "postgres"):
 # Create the global request queue (Phase 6a)
 _request_queue = RequestQueue(max_size=50)
 
+# Default maximum tokens for generation when omitted by the client.
+# Matches the default of every adapter's generate() and the custom runtime's
+# BatchEngine.submit, so the reservation equals the cap actually requested.
+DEFAULT_MAX_TOKENS: int = 100
+
 # Set up a logger so we can log guardrail degradation events.
 logger = logging.getLogger("gateway")
 logger.setLevel(logging.INFO)
 
-# Phase 12: Global pricing configuration
-try:
-    _pricing_path = default_pricing_path()
-    _pricing: Optional[PricingConfig] = load_pricing(_pricing_path) if _pricing_path.is_file() else None
-except Exception as exc:
-    logger.warning("Could not load pricing configuration: %s", exc)
-    _pricing = None
+# Phase 12: Global pricing configuration (must fail loudly if missing or invalid)
+_pricing: PricingConfig = load_pricing(default_pricing_path())
 
 # Phase 12: Global quota manager, usage meter, and refusal event writer
 _quota = QuotaManager()
@@ -591,23 +591,30 @@ async def create_chat_completion(
 
     tenant = _tenant_store.get(tenant_id)
     if tenant is None:
-        tenant_tier: Literal["free", "premium"] = (
-            "premium" if effective_tier == "premium" else "free"
-        )
-        tenant = Tenant(
-            tenant_id=tenant_id,
-            tier=tenant_tier,
-            key_sha256="0" * 64,
+        # The tenant was removed between authentication and this point
+        # (e.g. Postgres reload); serving it without limits would bypass quotas.
+        logger.error("Authenticated tenant '%s' no longer found in tenant store", tenant_id)
+        _safe_dec_inflight()
+        return Response(
+            content=_AUTH_ERROR_BYTES,
+            status_code=401,
+            media_type="application/json",
         )
 
+    if request_body.max_tokens is not None:
+        resolved_max_tokens = request_body.max_tokens
+    else:
+        resolved_max_tokens = DEFAULT_MAX_TOKENS  # matches the default of every adapter's generate() and the custom runtime's BatchEngine.submit, so the reservation equals the cap actually requested
+
     prompt_estimate = estimate_prompt_tokens(messages_dicts)
-    resolved_max_tokens = request_body.max_tokens or 512
     decision = _quota.check_and_reserve(tenant, prompt_estimate, resolved_max_tokens)
     if not decision.allowed:
+        if decision.reason is None:
+            raise RuntimeError("Quota refusal must carry a reason")
         _safe_dec_inflight()
         _quota_events.record_refusal(
             tenant_id=tenant.tenant_id,
-            reason=decision.reason or "quota_tokens",
+            reason=decision.reason,
             requested_tokens=decision.requested_tokens,
             available_tokens=decision.available_tokens,
             spent_today=decision.spent_today,
@@ -639,15 +646,15 @@ async def create_chat_completion(
             engine=requested_engine,
             prompt=last_user_message,
             tier=effective_tier,
-            max_tokens=request_body.max_tokens if request_body.max_tokens is not None else 100,
+            max_tokens=resolved_max_tokens,
             response_queue=response_queue,
-            messages=messages_dicts
+            messages=messages_dicts,
         )
     except RuntimeError as e:
         _safe_dec_inflight()
         _quota.settle(tenant, decision.reservation, actual_tokens=0, energy_cost=None)
         # The queue is full, gracefully reject the request immediately rather than blocking
-        return JSONResponse(status_code=429, content={"error": str(e), "type": "queue_full"})
+        return JSONResponse(status_code=429, content={"error": str(e)})
 
     async def streaming_generator() -> AsyncIterator[str]:
         """
@@ -695,17 +702,16 @@ async def create_chat_completion(
             actual_tokens = prompt_estimate + output_tokens
 
             cost: Optional[float] = None
-            if _pricing is not None:
-                duration_s = max(0.0, stream_timer.elapsed_ms() / 1000.0)
-                try:
-                    cost = energy_cost(_pricing, requested_engine, duration_s)
-                except ValueError as exc:
-                    logger.warning(
-                        "Could not calculate energy cost for engine '%s': %s",
-                        requested_engine,
-                        exc,
-                    )
-                    cost = None
+            duration_s = max(0.0, stream_timer.elapsed_ms() / 1000.0)
+            try:
+                cost = energy_cost(_pricing, requested_engine, duration_s)
+            except ValueError as exc:
+                logger.warning(
+                    "Could not calculate energy cost for engine '%s': %s",
+                    requested_engine,
+                    exc,
+                )
+                cost = None
 
             _quota.settle(
                 tenant,
@@ -723,7 +729,7 @@ async def create_chat_completion(
                     output_tokens=output_tokens,
                     cache_hit=False,
                     energy_cost=cost,
-                    currency=_pricing.currency if (_pricing and cost is not None) else None,
+                    currency=_pricing.currency if cost is not None else None,
                 )
             )
 

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
+import sys
 from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
 import gateway
+from quota import QuotaDecision
 from telemetry import TelemetryEvent
-from tenants import Tenant
+from tenants import _AUTH_ERROR_BYTES, Tenant
 
 
 @pytest.fixture
@@ -153,12 +156,12 @@ def test_gateway_spend_cap_rejection(
     assert "daily spend cap" in body["error"]["message"]
 
 
-def test_gateway_queue_full_returns_queue_full_not_quota_exceeded(
+def test_gateway_queue_full_refunds_reservation_and_returns_429(
     client: TestClient,
     test_tenants: dict[str, tuple[str, Tenant]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify Phase 7 queue-full failure returns type='queue_full' and does not conflict with quotas."""
+    """Verify Phase 7 queue-full failure returns 429 and refunds token reservation."""
     raw_key, tenant = test_tenants["rate"]
 
     # Force queue to simulate overflow
@@ -180,12 +183,87 @@ def test_gateway_queue_full_returns_queue_full_not_quota_exceeded(
     response = client.post("/v1/chat/completions", json=payload, headers=headers)
     assert response.status_code == 429
     body = response.json()
-    # MUST have type == 'queue_full', NOT 'quota_exceeded'
-    assert body.get("type") == "queue_full"
     assert "Queue is full" in body.get("error", "")
+    assert "reason" not in body
+    assert body.get("type") != "quota_exceeded"
 
     # Reservation should have been refunded on queue failure
     assert bucket.balance == initial_balance
+
+
+def test_gateway_missing_tenant_returns_401_auth_error(
+    client: TestClient,
+    test_tenants: dict[str, tuple[str, Tenant]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that a tenant removed from store after auth receives 401 with standard auth error."""
+    raw_key, tenant = test_tenants["rate"]
+
+    # Monkeypatch _tenant_store.get to return None simulating tenant removal
+    monkeypatch.setattr(gateway._tenant_store, "get", lambda tid: None)
+
+    payload = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "max_tokens": 10,
+    }
+    headers = {"X-API-Key": raw_key}
+
+    response = client.post("/v1/chat/completions", json=payload, headers=headers)
+    assert response.status_code == 401
+    assert response.content == _AUTH_ERROR_BYTES
+
+
+def test_gateway_omitted_max_tokens_reserves_default_100(
+    client: TestClient,
+    test_tenants: dict[str, tuple[str, Tenant]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify request without max_tokens reserves prompt_estimate + DEFAULT_MAX_TOKENS (100)."""
+    raw_key, tenant = test_tenants["iso1"]
+
+    captured_reservations: list[int] = []
+    real_check = gateway._quota.check_and_reserve
+
+    def fake_check(t: Tenant, prompt_tokens: int, max_tokens: int) -> QuotaDecision:
+        captured_reservations.append(max_tokens)
+        return real_check(t, prompt_tokens, max_tokens)
+
+    monkeypatch.setattr(gateway._quota, "check_and_reserve", fake_check)
+
+    # Deliver 0 tokens so generation completes cleanly
+    async def fake_enqueue(*args: Any, **kwargs: Any) -> str:
+        rq = kwargs["response_queue"]
+        await rq.put({"type": "done"})
+        return "req_test"
+
+    monkeypatch.setattr(gateway._request_queue, "enqueue", fake_enqueue)
+
+    payload = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "How does python work?"}],
+        # Note: max_tokens is omitted
+    }
+    headers = {"X-API-Key": raw_key}
+
+    response = client.post("/v1/chat/completions", json=payload, headers=headers)
+    assert response.status_code == 200
+    assert len(captured_reservations) == 1
+    assert captured_reservations[0] == 100
+
+
+def test_gateway_import_fails_on_missing_pricing_file() -> None:
+    """Verify gateway import fails if LANDAUER_PRICING_PATH points to a missing file."""
+    env = dict(os.environ)
+    env["LANDAUER_PRICING_PATH"] = "nonexistent_pricing_file_123.yaml"
+    proc = subprocess.run(
+        [sys.executable, "-c", "import gateway"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode != 0
+    assert "pricing" in proc.stderr.lower()
 
 
 def test_gateway_output_tokens_matches_telemetry_event(
