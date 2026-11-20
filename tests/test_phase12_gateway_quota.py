@@ -80,6 +80,7 @@ def test_tenants() -> dict[str, tuple[str, Tenant]]:
 
     all_tenants = [dev_tenant] + [t[1] for t in keys.values()]
     gateway._tenant_store.replace_tenants(all_tenants)
+    gateway._meter._totals.clear()
     return keys
 
 
@@ -269,11 +270,11 @@ def test_gateway_import_fails_on_missing_pricing_file() -> None:
 def test_gateway_output_tokens_matches_telemetry_event(
     client: TestClient,
     test_tenants: dict[str, tuple[str, Tenant]],
-    mock_enqueue: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify UsageMeter output_tokens matches token_count in telemetry event."""
-    raw_key, tenant = test_tenants["iso1"]
+    """Verify multi-request two-tenant metering output_tokens matches telemetry token_count."""
+    key_a, tenant_a = test_tenants["iso1"]
+    key_b, tenant_b = test_tenants["iso2"]
 
     captured_events: list[TelemetryEvent] = []
     real_record = gateway.record_event_background
@@ -284,25 +285,62 @@ def test_gateway_output_tokens_matches_telemetry_event(
 
     monkeypatch.setattr(gateway, "record_event_background", fake_record)
 
-    payload = {
-        "model": "test-model",
-        "messages": [{"role": "user", "content": "Count from 1 to 3"}],
-        "max_tokens": 50,
-    }
-    headers = {"X-API-Key": raw_key}
+    async def fake_enqueue(
+        engine: str,
+        prompt: str,
+        tier: str,
+        max_tokens: int,
+        response_queue: Any,
+        messages: Any = None,
+    ) -> str:
+        # Deliver 3 pieces for tenant A, 5 pieces for tenant B
+        if "tenant_a" in prompt:
+            for i in range(1, 4):
+                await response_queue.put({"type": "token", "content": f"a{i} "})
+        elif "tenant_b" in prompt:
+            for i in range(1, 6):
+                await response_queue.put({"type": "token", "content": f"b{i} "})
+        else:
+            raise ValueError(f"Unrecognized prompt: {prompt}")
+        await response_queue.put({"type": "done"})
+        return "req_mock_tokens"
 
-    response = client.post("/v1/chat/completions", json=payload, headers=headers)
-    assert response.status_code == 200
+    monkeypatch.setattr(gateway._request_queue, "enqueue", fake_enqueue)
 
-    # Check in-memory meter
-    meter_totals = gateway._meter.get_totals(tenant.tenant_id)
-    assert meter_totals["output_tokens"] == 3  # Mock delivers 3 tokens
+    # Send 2 requests as tenant A
+    p_a1 = {"model": "test-model", "messages": [{"role": "user", "content": "tenant_a first query"}]}
+    r_a1 = client.post("/v1/chat/completions", json=p_a1, headers={"X-API-Key": key_a})
+    assert r_a1.status_code == 200
 
-    assert len(captured_events) == 1
-    telemetry_event = captured_events[0]
-    assert telemetry_event.tenant_id == tenant.tenant_id
-    assert telemetry_event.token_count == 3
-    assert telemetry_event.token_count == meter_totals["output_tokens"]
+    p_a2 = {"model": "test-model", "messages": [{"role": "user", "content": "tenant_a second query"}]}
+    r_a2 = client.post("/v1/chat/completions", json=p_a2, headers={"X-API-Key": key_a})
+    assert r_a2.status_code == 200
+
+    # Send 1 request as tenant B
+    p_b1 = {"model": "test-model", "messages": [{"role": "user", "content": "tenant_b first query"}]}
+    r_b1 = client.post("/v1/chat/completions", json=p_b1, headers={"X-API-Key": key_b})
+    assert r_b1.status_code == 200
+
+    # Check telemetry events
+    assert len(captured_events) == 3
+
+    a_events = [ev for ev in captured_events if ev.tenant_id == tenant_a.tenant_id]
+    b_events = [ev for ev in captured_events if ev.tenant_id == tenant_b.tenant_id]
+
+    assert len(a_events) == 2
+    assert len(b_events) == 1
+
+    sum_a_tokens = sum(ev.token_count for ev in a_events)
+    sum_b_tokens = sum(ev.token_count for ev in b_events)
+
+    totals_a = gateway._meter.get_totals(tenant_a.tenant_id)
+    totals_b = gateway._meter.get_totals(tenant_b.tenant_id)
+
+    assert totals_a["output_tokens"] == sum_a_tokens
+    assert totals_b["output_tokens"] == sum_b_tokens
+
+    assert totals_a["output_tokens"] == 6
+    assert totals_b["output_tokens"] == 5
 
 
 def test_gateway_cache_hit_free_tokens_and_metered(
@@ -338,7 +376,7 @@ def test_gateway_cache_hit_free_tokens_and_metered(
 
     # Meter must record cache hit
     totals = gateway._meter.get_totals(tenant.tenant_id)
-    assert totals["cache_hits"] >= 1
+    assert totals["cache_hits"] == 1
 
 
 def test_gateway_tenant_cache_isolation_and_sharing(
@@ -386,7 +424,8 @@ def test_gateway_bearer_and_x_api_key_meter_to_same_tenant(
     mock_enqueue: None,
 ) -> None:
     """Verify Bearer and X-API-Key headers identify and meter to the same tenant."""
-    raw_key, tenant = test_tenants["iso1"]
+    raw_key, tenant_a = test_tenants["iso1"]
+    _, tenant_b = test_tenants["iso2"]
 
     payload1 = {"model": "test-model", "messages": [{"role": "user", "content": "Query via X-Key"}]}
     r1 = client.post("/v1/chat/completions", json=payload1, headers={"X-API-Key": raw_key})
@@ -396,5 +435,8 @@ def test_gateway_bearer_and_x_api_key_meter_to_same_tenant(
     r2 = client.post("/v1/chat/completions", json=payload2, headers={"Authorization": f"Bearer {raw_key}"})
     assert r2.status_code == 200
 
-    totals = gateway._meter.get_totals(tenant.tenant_id)
-    assert totals["requests"] >= 2
+    totals_a = gateway._meter.get_totals(tenant_a.tenant_id)
+    assert totals_a["requests"] == 2
+
+    totals_b = gateway._meter.get_totals(tenant_b.tenant_id)
+    assert totals_b["requests"] == 0
