@@ -143,6 +143,19 @@ jobs:
         # Slowest run: 92.70s. Formula: 3 * 92.70s = 278.11s, rounded up to next 10s = 280s.
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up --wait --wait-timeout 280
 
+      - name: 8b verify gateway migrations
+        # Confirms the gateway container executed Alembic migrations on startup and created usage_events
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs gateway | grep "Running upgrade"
+          RES=$(docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T postgres \
+            psql -U landauer -d landauer -tAc "select to_regclass('public.usage_events')")
+          if [ "$RES" != "usage_events" ]; then
+            echo "Expected usage_events, got: $RES"
+            exit 1
+          fi
+
       - name: 9 run CI smoke tests
         # Validates end-to-end gateway SSE streaming completion and Grafana database health.
         run: python3 scripts/ci_smoke.py

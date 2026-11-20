@@ -21,25 +21,27 @@ def run_migrations_if_configured() -> None:
 
     Key Logic:
         If LANDAUER_PG_DSN is non-empty, executes the Alembic CLI runner in the isolated
-        migration virtualenv. If unset or empty, logs a note and skips migration so that
-        the gateway can run in environments without PostgreSQL (e.g. unit tests).
+        migration virtualenv at /opt/migrate/bin/alembic. If unset or empty, logs a note and
+        skips migration so that the gateway can run in environments without PostgreSQL
+        (e.g. unit tests).
 
     Side Effects:
-        Modifies database schema via Alembic. Raises subprocess.CalledProcessError on failure.
+        Modifies database schema via Alembic. Raises FileNotFoundError if /opt/migrate/bin/alembic
+        is missing, or subprocess.CalledProcessError on migration execution failure.
     """
     dsn = os.environ.get("LANDAUER_PG_DSN")
     if not dsn or not dsn.strip():
         logger.info("LANDAUER_PG_DSN is unset or empty; skipping Alembic migrations.")
         return
 
-    alembic_bin = "/opt/migrate/bin/alembic"
-    if not Path(alembic_bin).is_file():
-        alembic_bin = "alembic"
-
-    cwd = "/app" if Path("/app").is_dir() else str(Path(__file__).resolve().parent)
+    alembic_bin = Path("/opt/migrate/bin/alembic")
+    if not alembic_bin.is_file():
+        raise FileNotFoundError(
+            f"Alembic binary not found at '{alembic_bin}' with LANDAUER_PG_DSN configured"
+        )
 
     logger.info("Running database migrations (alembic upgrade head)...")
-    subprocess.run([alembic_bin, "upgrade", "head"], check=True, cwd=cwd)
+    subprocess.run([str(alembic_bin), "upgrade", "head"], check=True, cwd="/app")
 
 
 def main() -> None:
