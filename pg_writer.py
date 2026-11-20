@@ -20,6 +20,13 @@ _INSERT_TELEMETRY_SQL = (
     ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
 )
 
+_INSERT_USAGE_SQL = (
+    "INSERT INTO usage_events ("
+    "created_at, run_id, tenant_id, engine, prompt_tokens, "
+    "output_tokens, cache_hit, energy_cost, currency"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+)
+
 
 def _sanitize_error(message: str, dsn: Optional[str]) -> str:
     """
@@ -215,6 +222,106 @@ class PgEventWriter:
             landauer_pg_writes_total.labels(result=result).inc()
 
         return result
+
+    async def write_usage(self, event: Any) -> None:
+        """
+        Writes a single usage event to PostgreSQL.
+
+        Inputs:
+        - event: UsageEvent instance containing token and energy consumption metrics.
+
+        Side Effects:
+        - Executes SQL insert against usage_events table.
+        - Catches all exceptions and logs a warning on failure; never raises to the caller.
+        """
+        if not self._enabled:
+            return
+
+        if self._pending >= self._max_pending:
+            logger.warning(
+                "Postgres event writer queue full (%d pending), dropping usage event",
+                self._pending,
+            )
+            return
+
+        self._pending += 1
+        try:
+            if self._pool is None:
+                now = self._clock()
+                if now - self._last_connect_attempt >= self._reconnect_interval_s:
+                    self._last_connect_attempt = now
+                    try:
+                        self._pool = await self._pool_factory(self._dsn, min_size=1, max_size=4)
+                    except Exception as exc:
+                        logger.warning(
+                            "Postgres reconnect failed: %s: %s",
+                            type(exc).__name__,
+                            _sanitize_error(str(exc), self._dsn),
+                        )
+                        self._pool = None
+
+                if self._pool is None:
+                    return
+
+            args = (
+                event.created_at,
+                event.run_id,
+                event.tenant_id,
+                event.engine,
+                event.prompt_tokens,
+                event.output_tokens,
+                event.cache_hit,
+                event.energy_cost,
+                event.currency,
+            )
+            await asyncio.wait_for(
+                self._pool.execute(_INSERT_USAGE_SQL, *args),
+                timeout=self._write_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Postgres usage write timed out after %.2f seconds",
+                self._write_timeout_s,
+            )
+        except (
+            asyncpg.PostgresConnectionError,
+            ConnectionError,
+            OSError,
+            asyncpg.InterfaceError,
+        ) as exc:
+            logger.warning(
+                "Postgres connection error during usage write: %s: %s",
+                type(exc).__name__,
+                _sanitize_error(str(exc), self._dsn),
+            )
+            self._last_connect_attempt = self._clock()
+            if self._pool is not None:
+                pool_to_close = self._pool
+                self._pool = None
+                try:
+                    close_coro = pool_to_close.close()
+                    if inspect.isawaitable(close_coro):
+                        await close_coro
+                except Exception as close_exc:
+                    logger.warning(
+                        "Error closing dropped Postgres pool: %s: %s",
+                        type(close_exc).__name__,
+                        _sanitize_error(str(close_exc), self._dsn),
+                    )
+        except asyncpg.PostgresError as exc:
+            logger.warning(
+                "Postgres error during usage write: %s: %s",
+                type(exc).__name__,
+                _sanitize_error(str(exc), self._dsn),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unexpected error during Postgres usage write: %s: %s",
+                type(exc).__name__,
+                _sanitize_error(str(exc), self._dsn),
+            )
+        finally:
+            self._pending -= 1
 
     async def close(self) -> None:
         """

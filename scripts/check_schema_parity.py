@@ -70,6 +70,7 @@ REQUIRED_TABLES: Tuple[str, ...] = (
     "CREATE TABLE public.tenants",
     "CREATE TABLE public.run_manifests",
     "CREATE TABLE public.alembic_version",
+    "CREATE TABLE public.usage_events",
 )
 
 

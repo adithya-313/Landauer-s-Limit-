@@ -2,3 +2,6 @@ tenants:
   - tenant_id: local_dev
     tier: premium
     key_sha256: f5ab25eec8fa0b33bdbf04483ee53c594b61d3cc161277e67b120b22ca22fe3b
+admins:
+  - admin_id: local_admin
+    key_sha256: 7e94cfdb81225ce4a38632bfd3a241f1cb411300ff587af3bea6342564117c96

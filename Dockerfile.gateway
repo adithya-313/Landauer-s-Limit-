@@ -40,11 +40,15 @@ RUN useradd -m -u 1000 appuser
 WORKDIR /app
 
 COPY requirements-gateway.lock /tmp/requirements-gateway.lock
+COPY requirements-migrations.lock /tmp/requirements-migrations.lock
 RUN pip install --no-cache-dir -r /tmp/requirements-gateway.lock \
-    && rm /tmp/requirements-gateway.lock
+    && python -m venv /opt/migrate \
+    && /opt/migrate/bin/pip install --no-cache-dir -r /tmp/requirements-migrations.lock \
+    && rm /tmp/requirements-gateway.lock /tmp/requirements-migrations.lock
 
 # Explicitly copy source files imported by gateway
 COPY gateway.py \
+     start_gateway.py \
      admin_routes.py \
      admission_controller.py \
      circuit_breaker.py \
@@ -52,10 +56,13 @@ COPY gateway.py \
      engine_config.py \
      gpu_monitor.py \
      guardrail.py \
+     metering.py \
      model_manifest.py \
      payload_guard.py \
      pg_writer.py \
+     pricing.py \
      protective_actions.py \
+     quota.py \
      request_queue.py \
      semantic_cache.py \
      telemetry.py \
@@ -64,6 +71,10 @@ COPY gateway.py \
      /app/
 
 COPY adapters /app/adapters
+COPY alembic.ini /app/alembic.ini
+COPY migrations /app/migrations
+COPY db /app/db
+COPY config/pricing.yaml /app/pricing/pricing.yaml
 
 # Copy exported ONNX model and cached HuggingFace tokenizer
 COPY --from=export /export/all-MiniLM-L6-v2.onnx /app/all-MiniLM-L6-v2.onnx
@@ -71,8 +82,8 @@ COPY --from=export /export/all-MiniLM-L6-v2.onnx.sha256 /app/all-MiniLM-L6-v2.on
 COPY --from=export /hf /hf
 
 # Create necessary directories and configure permissions
-RUN mkdir -p /app/config /app/telemetry \
-    && chown -R appuser:appuser /app /hf
+RUN mkdir -p /app/config /app/telemetry /app/pricing \
+    && chown -R appuser:appuser /opt/migrate /app /hf
 
 USER appuser
 
@@ -81,9 +92,10 @@ ENV HF_HOME=/hf \
     TRANSFORMERS_OFFLINE=1 \
     LANDAUER_CONFIG_PATH=/app/config/config.yaml \
     LANDAUER_TENANTS_PATH=/app/config/tenants.yaml \
-    LANDAUER_EVENTS_PATH=/app/telemetry/gateway_events.jsonl
+    LANDAUER_EVENTS_PATH=/app/telemetry/gateway_events.jsonl \
+    LANDAUER_PRICING_PATH=/app/pricing/pricing.yaml
 
 EXPOSE 8080
 
-CMD ["uvicorn", "gateway:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "start_gateway.py"]
 
